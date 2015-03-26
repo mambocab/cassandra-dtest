@@ -130,7 +130,7 @@ class TestRangeDeletion(Tester):
                                   [3, 0], [3, 1], [3, 2], [3, 3], [3, 4]])
 
     @skip("check with implementer: unsupported?")
-    def delete_manually_indexed_range_test(self):
+    def delete_manually_indexed_key_inequality_test(self):
         self.cluster.populate(1).start()
         time.sleep(5)
         [node1] = self.cluster.nodelist()
@@ -159,4 +159,35 @@ class TestRangeDeletion(Tester):
         result = rows_to_list(cursor.execute('SELECT * FROM test;'))
         self.assertEqual(result, [[1, 0], [1, 1], [1, 2], [1, 3], [1, 4],
                                   [2, 3], [2, 4],
+                                  [3, 0], [3, 1], [3, 2], [3, 3], [3, 4]])
+
+    def delete_manually_indexed_key_equality_test(self):
+        self.cluster.populate(1).start()
+        time.sleep(5)
+        [node1] = self.cluster.nodelist()
+
+        cursor = self.patient_cql_connection(node1)
+        self.create_ks(cursor, 'ks', 1)
+        cursor.execute('''
+            CREATE TABLE test (
+                key int PRIMARY KEY,
+                i int
+            );
+                       ''')
+
+        simple_insert = cursor.prepare(
+            'INSERT INTO test (key, i) VALUES (?, ?)')
+        for j in (1, 2, 3):
+            for k in range(5):
+                cursor.execute(simple_insert, [j, k])
+
+        cursor.execute('CREATE INDEX ON test (i)')
+
+        cursor.execute('''
+            DELETE FROM test WHERE key = 2 AND i = 3
+                       ''')
+
+        result = rows_to_list(cursor.execute('SELECT * FROM test;'))
+        self.assertEqual(result, [[1, 0], [1, 1], [1, 2], [1, 3], [1, 4],
+                                  [2, 0], [2, 1], [2, 2], [2, 4],
                                   [3, 0], [3, 1], [3, 2], [3, 3], [3, 4]])
