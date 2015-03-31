@@ -15,140 +15,51 @@ class TestRangeDeletion(Tester):
     https://issues.apache.org/jira/browse/CASSANDRA-6237.
     '''
 
-    def in_filter_test(self):
-        """Test for IN filter"""
+    @skip('not yet implemented')
+    def multiple_range_test(self):
+        """Test for deletion with >= filter"""
+        cursor = self._set_up_and_get_cursor()
 
-        self.cluster.populate(1).start()
-        [node1] = self.cluster.nodelist()
-
-        cursor = self.patient_cql_connection(node1)
-        self.create_ks(cursor, 'ks', 1)
-        cursor.execute('''
-            CREATE TABLE test (
-                key int PRIMARY KEY
-            );''')
-
-        simple_insert = cursor.prepare("INSERT INTO test (key) VALUES (?)")
-        for k in range(5):
-            cursor.execute(simple_insert, [k])
-
-        cursor.execute("DELETE FROM test WHERE key IN (3, 1);")
-
-        result = rows_to_list(cursor.execute('SELECT key FROM test;'))
-        self.assertEqual(result, [[0], [2], [4]])
-
-    def multiple_filter_test(self):
-        """Test for >= filter"""
-
-        self.cluster.populate(1).start()
-        [node1] = self.cluster.nodelist()
-
-        cursor = self.patient_cql_connection(node1)
-        self.create_ks(cursor, 'ks', 1)
-        cursor.execute('''
-            CREATE TABLE test (
-                partition_key int,
-                i int,
-                PRIMARY KEY (partition_key, i)
-            );''')
-
-        simple_insert = cursor.prepare(
-            'INSERT INTO test (partition_key, i) VALUES (?, ?)')
-        for j in (1, 2, 3):
-            for k in range(5):
-                cursor.execute(simple_insert, [j, k])
-
-        cursor.execute('DELETE FROM test WHERE partition_key = 3 AND i > 2;')
+        cursor.execute('DELETE FROM test WHERE key = 3 AND i > 2;')
 
         result = rows_to_list(cursor.execute('SELECT * FROM test;'))
         self.assertEqual(result, [[1, 0], [1, 1], [1, 2], [1, 3], [1, 4],
                                   [2, 0], [2, 1], [2, 2], [2, 3], [2, 4],
                                   [3, 0], [3, 1], [3, 2]])
 
-    def equality_filtered_batch_test(self):
-        self.cluster.populate(1).start()
-        time.sleep(5)
-        [node1] = self.cluster.nodelist()
-
-        cursor = self.patient_cql_connection(node1)
-        self.create_ks(cursor, 'ks', 1)
-        cursor.execute('''
-            CREATE TABLE test (
-                partition_key int,
-                i int,
-                PRIMARY KEY (partition_key, i)
-            );
-                       ''')
-
-        simple_insert = cursor.prepare(
-            'INSERT INTO test (partition_key, i) VALUES (?, ?)')
-        for j in (1, 2, 3):
-            for k in range(5):
-                cursor.execute(simple_insert, [j, k])
+    @skip('not yet implemented')
+    def equality_range_batch_test(self):
+        cursor = self._set_up_and_get_cursor()
 
         cursor.execute('''
             BEGIN BATCH
-            DELETE FROM test WHERE partition_key = 1
-            DELETE FROM test WHERE partition_key = 2 AND i IN (0, 4)
+            DELETE FROM test WHERE key = 1
+            DELETE FROM test WHERE key = 2 AND i = 0
             APPLY BATCH;
                        ''')
 
         result = rows_to_list(cursor.execute('SELECT * FROM test;'))
-        self.assertEqual(result, [[2, 1], [2, 2], [2, 3],
+        self.assertEqual(result, [[2, 1], [2, 2], [2, 3], [2, 4],
                                   [3, 0], [3, 1], [3, 2], [3, 3], [3, 4]])
 
     @skip('not yet implemented')
-    def inequality_filtered_batch_test(self):
-        self.cluster.populate(1).start()
-        time.sleep(5)
-        [node1] = self.cluster.nodelist()
-
-        cursor = self.patient_cql_connection(node1)
-        self.create_ks(cursor, 'ks', 1)
-        cursor.execute('''
-            CREATE TABLE test (
-                partition_key int,
-                i int,
-                PRIMARY KEY (partition_key, i)
-            );
-                       ''')
-
-        simple_insert = cursor.prepare(
-            'INSERT INTO test (partition_key, i) VALUES (?, ?)')
-        for j in (1, 2, 3):
-            for k in range(5):
-                cursor.execute(simple_insert, [j, k])
+    def inequality_range_batch_test(self):
+        cursor = self._set_up_and_get_cursor()
 
         cursor.execute('''
             BEGIN BATCH
-            DELETE FROM test WHERE partition_key = 2 AND i >= 3
+            DELETE FROM test WHERE key = 2 AND i >= 2
             APPLY BATCH;
                        ''')
 
         result = rows_to_list(cursor.execute('SELECT * FROM test;'))
-        self.assertEqual(result, [[2, 1], [2, 2], [2, 3],
+        self.assertEqual(result, [[1, 0], [1, 1], [1, 2], [1, 3], [1, 4],
+                                  [2, 1], [2, 2],
                                   [3, 0], [3, 1], [3, 2], [3, 3], [3, 4]])
 
-    @skip("check with implementer: unsupported?")
-    def delete_manually_indexed_key_inequality_test(self):
-        self.cluster.populate(1).start()
-        time.sleep(5)
-        [node1] = self.cluster.nodelist()
-
-        cursor = self.patient_cql_connection(node1)
-        self.create_ks(cursor, 'ks', 1)
-        cursor.execute('''
-            CREATE TABLE test (
-                key int PRIMARY KEY,
-                i int
-            );
-                       ''')
-
-        simple_insert = cursor.prepare(
-            'INSERT INTO test (key, i) VALUES (?, ?)')
-        for j in (1, 2, 3):
-            for k in range(5):
-                cursor.execute(simple_insert, [j, k])
+    @skip('maybe out of scope. check with implementer.')
+    def delete_manually_indexed_key_inequality_range_test(self):
+        cursor = self._set_up_and_get_cursor()
 
         cursor.execute('CREATE INDEX ON test (i)')
 
@@ -161,12 +72,46 @@ class TestRangeDeletion(Tester):
                                   [2, 3], [2, 4],
                                   [3, 0], [3, 1], [3, 2], [3, 3], [3, 4]])
 
-    def delete_manually_indexed_key_equality_test(self):
+    @skip('not implemented')
+    def delete_manually_indexed_key_equality_range_test(self):
+        cursor = self._set_up_and_get_cursor()
+
+        cursor.execute('CREATE INDEX ON test (i)')
+
+        cursor.execute('''
+            DELETE FROM test WHERE key = 2 AND i > 3
+                       ''')
+
+        result = rows_to_list(cursor.execute('SELECT * FROM test;'))
+        self.assertEqual(result, [[1, 0], [1, 1], [1, 2], [1, 3], [1, 4],
+                                  [2, 0], [2, 1], [2, 2], [2, 3],
+                                  [3, 0], [3, 1], [3, 2], [3, 3], [3, 4]])
+
+    @skip('not implemented')
+    def delete_range_using_timestamp(self):
+        cursor = self._set_up_and_get_cursor()
+
+        cursor.execute('''
+            DELETE FROM test WHERE key = 2 and i < 2
+            USING TIMESTAMP 20000000000000000
+                       ''')
+
+        result = rows_to_list(cursor.execute('SELECT i FROM test WHERE key = 2;'))
+        self.assertEqual(result, [[0], [1], [2]])
+
+        cursor.execute('''
+            INSERT INTO test (key, i) values (2, 10)
+            USING TIMESTAMP 20000000000000001
+                       ''')
+        result = rows_to_list(cursor.execute('SELECT i FROM test WHERE key = 2;'))
+        self.assertEqual(result, [[0], [1], [2], [10]])
+
+    def _set_up_and_get_cursor(self):
         self.cluster.populate(1).start()
         time.sleep(5)
         [node1] = self.cluster.nodelist()
-
         cursor = self.patient_cql_connection(node1)
+
         self.create_ks(cursor, 'ks', 1)
         cursor.execute('''
             CREATE TABLE test (
@@ -181,13 +126,4 @@ class TestRangeDeletion(Tester):
             for k in range(5):
                 cursor.execute(simple_insert, [j, k])
 
-        cursor.execute('CREATE INDEX ON test (i)')
-
-        cursor.execute('''
-            DELETE FROM test WHERE key = 2 AND i = 3
-                       ''')
-
-        result = rows_to_list(cursor.execute('SELECT * FROM test;'))
-        self.assertEqual(result, [[1, 0], [1, 1], [1, 2], [1, 3], [1, 4],
-                                  [2, 0], [2, 1], [2, 2], [2, 4],
-                                  [3, 0], [3, 1], [3, 2], [3, 3], [3, 4]])
+        return cursor
