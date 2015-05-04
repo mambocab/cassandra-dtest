@@ -170,6 +170,31 @@ def run_func_docstring(tester, test_func, globs=None, verbose=False, compileflag
 
 
 def cqlsh_docstring(obj):
+    """
+    A decorator that wraps a function so it calls run_func_docstring after being
+    executed. Code like this:
+
+        class TestCqlshFeature(Tester):
+            def cqlsh_docstring_test(self):
+                '''
+                >>> cqlsh_print('SELECT * FROM tab')
+                (cqlsh output...)
+                '''
+                run_func_docstring(tester=self, test_func=cqlsh_docstring_test)
+
+    with code like this:
+
+        class TestCqlshFeature(Tester):
+            @cqlsh_docstring_test
+            def cqlsh_docstring_test(self):
+                '''
+                >>> cqlsh_print('SELECT * FROM tab')
+                (cqlsh output...)
+                '''
+
+    If used to decorate a class, this will decorate every function on that
+    class.
+    """
     if inspect.isclass(obj):
         for k, v in obj.__dict__.iteritems():
             if inspect.isfunction(v):
