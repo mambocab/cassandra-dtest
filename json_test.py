@@ -1,4 +1,5 @@
 import doctest
+import functools
 import inspect
 import os
 import subprocess
@@ -168,7 +169,23 @@ def run_func_docstring(tester, test_func, globs=None, verbose=False, compileflag
         raise RuntimeError("No tests were run!")
 
 
+def cqlsh_docstring(obj):
+    if inspect.isclass(obj):
+        for k, v in obj.__dict__.iteritems():
+            if inspect.isfunction(v):
+                setattr(obj, k, cqlsh_docstring(v))
+        return obj
+    if inspect.isroutine(obj):
+        @functools.wraps(obj)
+        def wrapper(self):
+            obj(self)
+            run_func_docstring(tester=self,
+                               test_func=obj)
+        return wrapper
+
+
 @since('3.0')
+@cqlsh_docstring
 class ToJsonSelectTests(Tester):
     """
     Tests using toJson with a SELECT statement
@@ -242,7 +259,6 @@ class ToJsonSelectTests(Tester):
             (1 rows)
             <BLANKLINE>
         """
-        run_func_docstring(tester=self, test_func=self.basic_data_types_test)
 
     # yes, it's probably weird to use json for counter changes
     def counters_test(self):
@@ -274,7 +290,6 @@ class ToJsonSelectTests(Tester):
             (1 rows)
             <BLANKLINE>
         """
-        run_func_docstring(tester=self, test_func=self.counters_test)
 
     def complex_data_types_test(self):
         """
@@ -424,10 +439,10 @@ class ToJsonSelectTests(Tester):
             (1 rows)
             <BLANKLINE>
         """
-        run_func_docstring(tester=self, test_func=self.complex_data_types_test)
 
 
 @since('3.0')
+@cqlsh_docstring
 class FromJsonUpdateTests(Tester):
     """
     Tests using fromJson within UPDATE statements.
@@ -496,7 +511,6 @@ class FromJsonUpdateTests(Tester):
             (1 rows)
             <BLANKLINE>
         """
-        run_func_docstring(tester=self, test_func=self.basic_data_types_test)
 
     def complex_data_types_test(self):
         """"
@@ -650,7 +664,6 @@ class FromJsonUpdateTests(Tester):
             (1 rows)
             <BLANKLINE>
         """
-        run_func_docstring(tester=self, test_func=self.complex_data_types_test)
 
     def collection_update_test(self):
         """
@@ -724,10 +737,10 @@ class FromJsonUpdateTests(Tester):
             (1 rows)
             <BLANKLINE>
         """
-        run_func_docstring(tester=self, test_func=self.collection_update_test)
 
 
 @since('3.0')
+@cqlsh_docstring
 class FromJsonSelectTests(Tester):
     """
     Tests using fromJson in conjunction with a SELECT statement
@@ -766,7 +779,6 @@ class FromJsonSelectTests(Tester):
             (1 rows)
             <BLANKLINE>
         """
-        run_func_docstring(tester=self, test_func=self.selecting_pkey_as_json_test)
 
     def select_using_secondary_index_test(self):
         """
@@ -805,10 +817,10 @@ class FromJsonSelectTests(Tester):
             (1 rows)
             <BLANKLINE>
         """
-        run_func_docstring(tester=self, test_func=self.select_using_secondary_index_test)
 
 
 @since('3.0')
+@cqlsh_docstring
 class FromJsonInsertTests(Tester):
     """
     Tests using fromJson within INSERT statements.
@@ -874,7 +886,6 @@ class FromJsonInsertTests(Tester):
             (1 rows)
             <BLANKLINE>
         """
-        run_func_docstring(tester=self, test_func=self.basic_data_types_test)
 
     def complex_data_types_test(self):
         """
@@ -1027,10 +1038,10 @@ class FromJsonInsertTests(Tester):
             (2 rows)
             <BLANKLINE>
         """
-        run_func_docstring(tester=self, test_func=self.complex_data_types_test)
 
 
 @since('3.0')
+@cqlsh_docstring
 class FromJsonDeleteTests(Tester):
     """
     Tests using fromJson within DELETE statements.
@@ -1086,10 +1097,10 @@ class FromJsonDeleteTests(Tester):
             (1 rows)
             <BLANKLINE>
         """
-        run_func_docstring(tester=self, test_func=self.delete_using_pkey_json_test)
 
 
 @since('3.0')
+@cqlsh_docstring
 class JsonFullRowInsertSelect(Tester):
     """
     Tests for creating full rows from json documents, selecting full rows back as json documents, and related functionality.
@@ -1197,7 +1208,6 @@ class JsonFullRowInsertSelect(Tester):
             (2 rows)
             <BLANKLINE>
         """
-        run_func_docstring(tester=self, test_func=self.simple_schema_test)
 
     def pkey_requirement_test(self):
         """
@@ -1229,7 +1239,6 @@ class JsonFullRowInsertSelect(Tester):
             <stdin>:2:InvalidRequest: code=2200 [Invalid query] message="Invalid null value in condition for column key1"
             <BLANKLINE>
         """
-        run_func_docstring(tester=self, test_func=self.pkey_requirement_test)
 
     def null_value_test(self):
         """
@@ -1272,7 +1281,6 @@ class JsonFullRowInsertSelect(Tester):
             (1 rows)
             <BLANKLINE>
         """
-        run_func_docstring(tester=self, test_func=self.null_value_test)
 
     def complex_schema_test(self):
         """
@@ -1474,4 +1482,3 @@ class JsonFullRowInsertSelect(Tester):
             <BLANKLINE>
 
         """
-        run_func_docstring(tester=self, test_func=self.complex_schema_test)
