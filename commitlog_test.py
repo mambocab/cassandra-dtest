@@ -224,10 +224,15 @@ class TestCommitLog(Tester):
         })
 
         self._provoke_commitlog_failure()
-        failure = self.node1.grep_log("ERROR \[COMMIT-LOG-ALLOCATOR\].+JVM state determined to be unstable.  Exiting forcefully")
-        debug(failure)
-        self.assertTrue(failure, "Cannot find the commitlog failure message in logs")
-        self.assertFalse(self.node1.is_running(), "Node1 should not be running")
+        log_err = self.node1.grep_log("ERROR \[COMMIT-LOG-ALLOCATOR\].+JVM state determined to be unstable.  Exiting forcefully")
+        debug("die_failure_policy_test failure: {log_err}".format(log_err=log_err))
+
+        msgs = []
+        if not log_err:
+            msgs.append("Cannot find the commitlog failure message in logs")
+        if self.node1.is_running():
+            msgs.append("Node1 should not be running")
+        self.assertEqual([], msgs, msg='; '.join(msgs))
 
     def ignore_failure_policy_test(self):
         """ Test the ignore commitlog failure policy """
