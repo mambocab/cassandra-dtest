@@ -49,3 +49,12 @@ class CqlshCopyTest(Tester):
         node1.run_cqlsh(cmds="COPY ks.testcopyto FROM '{name}'".format(name=tempfile.name))
         new_results = list(session.execute("SELECT * FROM testcopyto"))
         self.assertEquals(results, new_results)
+
+
+def csv_rows(filename):
+    '''
+    Given a filename, opens a csv file and yeilds it line by line.
+    '''
+    with open(filename, 'r') as csvfile:
+        for row in csv.reader(csvfile):
+            yield row
