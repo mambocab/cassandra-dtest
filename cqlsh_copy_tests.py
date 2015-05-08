@@ -10,7 +10,7 @@ from dtest import debug, Tester
 class CqlshCopyTest(Tester):
 
     def test_copy_to(self):
-        self.cluster.populate(1).start()
+        self.cluster.populate(1).start(wait_for_binary_proto=True)
         node1, = self.cluster.nodelist()
 
         session = self.patient_cql_connection(node1)
