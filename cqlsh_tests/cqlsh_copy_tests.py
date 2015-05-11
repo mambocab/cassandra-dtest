@@ -21,6 +21,13 @@ class CqlshCopyTest(Tester):
 
     @contextmanager
     def _cqlshlib(self):
+        '''
+        Returns the cqlshlib module, as defined in self.cluster's first node.
+        '''
+        # This method accomplishes its goal by manually adding the library to
+        # sys.path, returning the module, then restoring the old path once the
+        # context manager exits. This isn't great for maintainability and should
+        # be replaced if cqlshlib is made easier to interact with.
         saved_path = list(sys.path)
         cassandra_dir = self.cluster.nodelist()[0].get_install_dir()
 
@@ -36,8 +43,6 @@ class CqlshCopyTest(Tester):
         Given an object returned from a CQL query, returns a string formatted by
         the cqlsh formatting utilities.
         '''
-        # unfortunately, it's not easy to grab the formatting function, so we
-        # have to manually add its definition to the import path. Mega-gross.
         with self._cqlshlib() as cqlshlib:
             from cqlshlib.formatting import format_value
             encoding_name = codecs.lookup(locale.getpreferredencoding()).name
