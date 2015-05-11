@@ -14,6 +14,9 @@ from tools import rows_to_list
 from cqlsh_tools import csv_rows, random_list, DummyColorMap
 
 
+DEFAULT_FLOAT_PRECISION = 5  # magic number copied from cqlsh script
+
+
 class CqlshCopyTest(Tester):
 
     @contextmanager
@@ -43,7 +46,7 @@ class CqlshCopyTest(Tester):
                 return format_value(type(val), val,
                                     encoding=encoding_name,
                                     date_time_format=None,
-                                    float_precision=None,
+                                    float_precision=DEFAULT_FLOAT_PRECISION,
                                     colormap=DummyColorMap(),
                                     nullval=None).strval
 
