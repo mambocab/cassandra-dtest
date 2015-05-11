@@ -162,9 +162,6 @@ class CqlshCopyTest(Tester):
     def test_colon_delimiter(self):
         self.non_default_delimiter_template(':')
 
-    def test_semicolon_delimiter(self):
-        self.non_default_delimiter_template(';')
-
     def test_letter_delimiter(self):
         self.non_default_delimiter_template('a')
 
@@ -201,9 +198,6 @@ class CqlshCopyTest(Tester):
 
     def test_null_as_null_indicator(self):
         self.custom_null_indicator_template('null')
-
-    def test_unicode_as_null_indicator(self):
-        self.custom_null_indicator_template('ツ')
 
     def test_writing_use_header(self):
         self.prepare()
