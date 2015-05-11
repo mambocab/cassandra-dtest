@@ -113,20 +113,20 @@ class CqlshCopyTest(Tester):
     def test_tuple_data(self):
         self.prepare()
         self.session.execute("""
-            create table testlist (
+            CREATE TABLE testlist (
                 a int primary key,
                 b tuple<uuid, uuid, uuid>
             )""")
 
-        insert_statement = self.session.prepare("insert into testtuple (a, b) values (?, ?)")
+        insert_statement = self.session.prepare("INSERT INTO testtuple (a, b) VALUES (?, ?)")
         args = [(i, random_list(gen=uuid4, n=3)) for i in range(1000)]
         execute_concurrent_with_args(self.session, insert_statement, args)
 
-        results = list(self.session.execute("select * from testtuple"))
+        results = list(self.session.execute("SELECT * FROM testtuple"))
 
         tempfile = NamedTemporaryFile()
-        debug('exporting to csv file: {name}'.format(name=tempfile.name))
-        self.node1.run_cqlsh(cmds="copy ks.testtuple to '{name}'".format(name=tempfile.name))
+        debug('Exporting to csv file: {name}'.format(name=tempfile.name))
+        self.node1.run_cqlsh(cmds="COPY ks.testtuple TO '{name}'".format(name=tempfile.name))
 
         self.assertsequenceequal(list(csv_rows(tempfile.name)),
                                  list(self.result_to_csv_rows(results)))
