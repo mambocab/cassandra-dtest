@@ -84,6 +84,7 @@ class CqlshCopyTest(Tester):
 
         # import the CSV file with COPY FROM
         self.session.execute("TRUNCATE ks.testcopyto")
+        debug('Importing from csv file: {name}'.format(name=tempfile.name))
         self.node1.run_cqlsh(cmds="COPY ks.testcopyto FROM '{name}'".format(name=tempfile.name))
         new_results = list(self.session.execute("SELECT * FROM testcopyto"))
         self.assertEqual(results, new_results)
