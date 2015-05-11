@@ -136,3 +136,35 @@ class CqlshCopyTest(Tester):
         self.node1.run_cqlsh(cmds="COPY ks.testtuple TO '{name}'".format(name=tempfile.name))
 
         self.assertCsvResultEqual(tempfile.name, results)
+
+    def non_default_delimiter_template(self, delimiter):
+        self.prepare()
+        self.session.execute("""
+            CREATE TABLE testdelimiter (
+                a int primary key
+            )""")
+        insert_statement = self.session.prepare("INSERT INTO testdelimiter (a) VALUES (?)")
+        args = [(i,) for i in range(1000)]
+        execute_concurrent_with_args(self.session, insert_statement, args)
+
+        results = list(self.session.execute("SELECT * FROM testdelimiter"))
+
+        tempfile = NamedTemporaryFile()
+        debug('Exporting to csv file: {name}'.format(name=tempfile.name))
+        cmds = "COPY ks.testdelimiter TO '{name}'".format(name=tempfile.name)
+        cmds += " WITH DELIMITER = '{d}'".format(d=delimiter)
+        self.node1.run_cqlsh(cmds=cmds)
+
+        self.assertCsvResultEqual(tempfile.name, results)
+
+    def test_colon_delimiter(self):
+        self.non_default_delimiter_template(':')
+
+    def test_semicolon_delimiter(self):
+        self.non_default_delimiter_template(';')
+
+    def test_letter_delimiter(self):
+        self.non_default_delimiter_template('a')
+
+    def test_number_delimiter(self):
+        self.non_default_delimiter_template('1')

@@ -7,12 +7,15 @@ class DummyColorMap(object):
         return ''
 
 
-def csv_rows(filename):
+def csv_rows(filename, delimiter=None):
     '''
     Given a filename, opens a csv file and yeilds it line by line.
     '''
+    reader_opts = {}
+    if delimiter is not None:
+        reader_opts['delimiter'] = delimiter
     with open(filename, 'r') as csvfile:
-        for row in csv.reader(csvfile):
+        for row in csv.reader(csvfile, **reader_opts):
             yield row
 
 
