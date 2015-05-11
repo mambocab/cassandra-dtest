@@ -107,11 +107,6 @@ class CqlshCopyTest(Tester):
         debug('Exporting to csv file: {name}'.format(name=tempfile.name))
         self.node1.run_cqlsh(cmds="COPY ks.testlist TO '{name}'".format(name=tempfile.name))
 
-        # csv_and_result_rows = zip(csv_rows(tempfile.name),
-        #                           self.result_to_csv_rows(results))
-
-        # for csv_row, result_row in csv_and_result_rows:
-        #     self.assertEqual(csv_row, result_row)
         self.assertSequenceEqual(list(csv_rows(tempfile.name)),
                                  list(self.result_to_csv_rows(results)))
 
