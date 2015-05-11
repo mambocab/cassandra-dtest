@@ -11,11 +11,7 @@ from cassandra.concurrent import execute_concurrent_with_args
 
 from dtest import debug, Tester
 from tools import rows_to_list
-
-
-class _EmptyStringGetter(object):
-    def __getitem__(self, *args):
-        return ''
+from cqlsh_tools import DummyColorMap
 
 
 class CqlshCopyTest(Tester):
@@ -36,13 +32,14 @@ class CqlshCopyTest(Tester):
             sys.path = sys.path + [os.path.join(cassandra_dir, 'pylib')]
             from cqlshlib.formatting import format_value
             encoding_name = codecs.lookup(locale.getpreferredencoding()).name
+
             def fmt(val):
                 return format_value(type(val), val,
-                                      encoding=encoding_name,
-                                      date_time_format=None,
-                                      float_precision=None,
-                                      colormap=_EmptyStringGetter(),
-                                      nullval=None).strval
+                                    encoding=encoding_name,
+                                    date_time_format=None,
+                                    float_precision=None,
+                                    colormap=DummyColorMap(),
+                                    nullval=None).strval
             formatted = [[fmt(v) for v in row] for row in result]
         finally:
             sys.path = saved_path
@@ -113,7 +110,6 @@ class CqlshCopyTest(Tester):
         self.assertSequenceEqual(list(csv_rows(tempfile.name)),
                                  list(self.result_to_csv_rows(results)))
 
-
     def test_tuple_data(self):
         self.cluster.populate(1).start(wait_for_binary_proto=True)
         [node] = self.cluster.nodelist()
@@ -131,7 +127,7 @@ class CqlshCopyTest(Tester):
 
         results = list(session.execute("select * from testtuple"))
 
-        tempfile = namedtemporaryfile()
+        tempfile = NamedTemporaryFile()
         debug('exporting to csv file: {name}'.format(name=tempfile.name))
         node.run_cqlsh(cmds="copy ks.testtuple to '{name}'".format(name=tempfile.name))
 
