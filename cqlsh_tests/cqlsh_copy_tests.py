@@ -38,6 +38,10 @@ class CqlshCopyTest(Tester):
         finally:
             sys.path = saved_path
 
+    def assertCsvResultEqual(self, csv_filename, results):
+        self.assertSequenceEqual(list(csv_rows(csv_filename)),
+                                 list(self.result_to_csv_rows(results)))
+
     def result_to_csv_rows(self, result):
         '''
         Given an object returned from a CQL query, returns a string formatted by
@@ -84,8 +88,7 @@ class CqlshCopyTest(Tester):
         debug('Exporting to csv file: {name}'.format(name=tempfile.name))
         self.node1.run_cqlsh(cmds="COPY ks.testcopyto TO '{name}'".format(name=tempfile.name))
 
-        self.assertSequenceEqual(list(csv_rows(tempfile.name)),
-                                 list(self.result_to_csv_rows(results)))
+        self.assertCsvResultEqual(tempfile.name, results)
 
         # import the CSV file with COPY FROM
         self.session.execute("TRUNCATE ks.testcopyto")
@@ -112,8 +115,7 @@ class CqlshCopyTest(Tester):
         debug('Exporting to csv file: {name}'.format(name=tempfile.name))
         self.node1.run_cqlsh(cmds="COPY ks.testlist TO '{name}'".format(name=tempfile.name))
 
-        self.assertSequenceEqual(list(csv_rows(tempfile.name)),
-                                 list(self.result_to_csv_rows(results)))
+        self.assertCsvResultEqual(tempfile.name, results)
 
     def test_tuple_data(self):
         self.prepare()
@@ -133,5 +135,4 @@ class CqlshCopyTest(Tester):
         debug('Exporting to csv file: {name}'.format(name=tempfile.name))
         self.node1.run_cqlsh(cmds="COPY ks.testtuple TO '{name}'".format(name=tempfile.name))
 
-        self.assertSequenceEqual(list(csv_rows(tempfile.name)),
-                                 list(self.result_to_csv_rows(results)))
+        self.assertCsvResultEqual(tempfile.name, results)
