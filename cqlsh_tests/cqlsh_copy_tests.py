@@ -1,6 +1,7 @@
 # coding: utf-8
 import codecs
 from contextlib import contextmanager
+import csv
 import locale
 import os
 import random
@@ -203,3 +204,56 @@ class CqlshCopyTest(Tester):
 
     def test_unicode_as_null_indicator(self):
         self.custom_null_indicator_template('ツ')
+
+    def test_writing_use_header(self):
+        self.prepare()
+        self.session.execute("""
+            CREATE TABLE testheader (
+                a int primary key,
+                b int
+            )""")
+        insert_statement = self.session.prepare("INSERT INTO testheader (a, b) VALUES (?, ?)")
+        args = [(1, 10), (2, 20), (3, 30)]
+        execute_concurrent_with_args(self.session, insert_statement, args)
+
+        tempfile = NamedTemporaryFile()
+        debug('Exporting to csv file: {name}'.format(name=tempfile.name))
+        cmds = "COPY ks.testheader TO '{name}'".format(name=tempfile.name)
+        cmds += " WITH HEADER = true"
+        self.node1.run_cqlsh(cmds=cmds)
+
+        with open(tempfile.name, 'r') as csvfile:
+            csv_values = list(csv.reader(csvfile))
+        with open(tempfile.name, 'r') as csvfile:
+            debug(csvfile.read())
+
+        self.assertEqual(len(csv_values), 4, msg=str(csv_values))
+        self.assertSequenceEqual(csv_values,
+                                 [['a', 'b'], ['1', '10'], ['2', '20'], ['3', '30']])
+
+    def test_reading_use_header(self):
+        self.prepare()
+        self.session.execute("""
+            CREATE TABLE testheader (
+                a int primary key,
+                b int
+            )""")
+
+        tempfile = NamedTemporaryFile()
+
+        data = [[1, 20], [2, 40], [3, 60], [4, 80]]
+
+        with open(tempfile.name, 'w') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=['a', 'b'])
+            writer.writeheader()
+            for a, b in data:
+                writer.writerow({'a': a, 'b': b})
+
+        cmds = "COPY ks.testheader FROM '{name}'".format(name=tempfile.name)
+        cmds += " WITH HEADER = true"
+        self.node1.run_cqlsh(cmds=cmds)
+
+        result = self.session.execute("SELECT * FROM testheader")
+        self.assertEqual(len(data), len(result))
+        self.assertSetEqual(set(tuple(d) for d in data),
+                            set(tuple(r) for r in rows_to_list(result)))
