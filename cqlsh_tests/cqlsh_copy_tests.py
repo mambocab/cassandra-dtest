@@ -63,7 +63,7 @@ class CqlshCopyTest(Tester):
         self.session = self.patient_cql_connection(self.node1)
         self.create_ks(self.session, 'ks', 1)
 
-    def test_copy_to(self):
+    def test_round_trip(self):
         self.prepare()
         self.session.execute("""
             CREATE TABLE testcopyto (
