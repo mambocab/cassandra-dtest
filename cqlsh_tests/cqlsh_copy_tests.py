@@ -1,3 +1,4 @@
+# coding: utf-8
 import codecs
 from contextlib import contextmanager
 import locale
@@ -168,3 +169,37 @@ class CqlshCopyTest(Tester):
 
     def test_number_delimiter(self):
         self.non_default_delimiter_template('1')
+
+    def custom_null_indicator_template(self, indicator):
+        self.prepare()
+        self.session.execute("""
+            CREATE TABLE testnullindicator (
+                a int primary key,
+                b text
+            )""")
+        insert_non_null = self.session.prepare("INSERT INTO testnullindicator (a, b) VALUES (?, ?)")
+        execute_concurrent_with_args(self.session, insert_non_null,
+                                     [(1, 'eggs'), (100, 'sausage')])
+        insert_null = self.session.prepare("INSERT INTO testnullindicator (a) VALUES (?)")
+        execute_concurrent_with_args(self.session, insert_null, [(2,), (200,)])
+
+        tempfile = NamedTemporaryFile()
+        debug('Exporting to csv file: {name}'.format(name=tempfile.name))
+        cmds = "COPY ks.testnullindicator TO '{name}'".format(name=tempfile.name)
+        cmds += " WITH NULL = '{d}'".format(d=indicator)
+        self.node1.run_cqlsh(cmds=cmds)
+
+        results = list(self.session.execute("SELECT a, b FROM ks.testnullindicator"))
+        results = [[indicator if value is None else value for value in row]
+                   for row in results]
+
+        self.assertCsvResultEqual(tempfile.name, results)
+
+    def test_undefined_as_null_indicator(self):
+        self.custom_null_indicator_template('undefined')
+
+    def test_null_as_null_indicator(self):
+        self.custom_null_indicator_template('null')
+
+    def test_unicode_as_null_indicator(self):
+        self.custom_null_indicator_template('ツ')
