@@ -118,7 +118,7 @@ class CqlshCopyTest(Tester):
     def test_tuple_data(self):
         self.prepare()
         self.session.execute("""
-            CREATE TABLE testlist (
+            CREATE TABLE testtuple (
                 a int primary key,
                 b tuple<uuid, uuid, uuid>
             )""")
@@ -133,5 +133,5 @@ class CqlshCopyTest(Tester):
         debug('Exporting to csv file: {name}'.format(name=tempfile.name))
         self.node1.run_cqlsh(cmds="COPY ks.testtuple TO '{name}'".format(name=tempfile.name))
 
-        self.assertsequenceequal(list(csv_rows(tempfile.name)),
+        self.assertSequenceEqual(list(csv_rows(tempfile.name)),
                                  list(self.result_to_csv_rows(results)))
