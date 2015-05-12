@@ -13,7 +13,7 @@ from cassandra.concurrent import execute_concurrent_with_args
 
 from dtest import debug, Tester
 from tools import rows_to_list
-from cqlsh_tools import csv_rows, random_list, DummyColorMap
+from cqlsh_tools import csv_rows, random_list, DummyColorMap, assert_csvs_items_equal
 
 
 DEFAULT_FLOAT_PRECISION = 5  # magic number copied from cqlsh script
@@ -276,8 +276,7 @@ class CqlshCopyTest(Tester):
             for a, b, c in data:
                 writer.writerow([a, c, b])
 
-        with open(tempfile.name, 'r') as x, open(reference_file.name, 'r') as y:
-            self.assertItemsEqual(list(x.readlines()), list(y.readlines()))
+        assert_csvs_items_equal(tempfile.name, reference_file.name)
 
     def test_explicit_column_order_reading(self):
         self.prepare()
@@ -356,5 +355,4 @@ class CqlshCopyTest(Tester):
             for a, b in data:
                 writer.writerow([a, b])
 
-        with open(tempfile.name, 'r') as x, open(reference_file.name, 'r') as y:
-            self.assertItemsEqual(list(x.readlines()), list(y.readlines()))
+        assert_csvs_items_equal(tempfile.name, reference_file.name)

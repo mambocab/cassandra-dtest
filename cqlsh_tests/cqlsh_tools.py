@@ -1,6 +1,7 @@
 import csv
 import random
 
+from nose.tools import assert_items_equal
 
 class DummyColorMap(object):
     def __getitem__(self, *args):
@@ -17,6 +18,11 @@ def csv_rows(filename, delimiter=None):
     with open(filename, 'r') as csvfile:
         for row in csv.reader(csvfile, **reader_opts):
             yield row
+
+
+def assert_csvs_items_equal(filename1, filename2):
+    with open(filename1, 'r') as x, open(filename2, 'r') as y:
+        assert_items_equal(list(x.readlines()), list(y.readlines()))
 
 
 def random_list(gen=None, n=None):
