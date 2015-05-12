@@ -554,18 +554,17 @@ class CqlshSmokeTest(Tester):
         self.create_ks(self.cursor, 'ks', 1)
         self.create_cf(self.cursor, 'test')
 
-        self.node1.run_cqlsh(
-            """
-            -- commented line
-            // Another comment
-            /* multiline
-             *
-             * comment */
-            """)
-        out, err = self.node1.run_cqlsh("DESCRIBE KEYSPACE ks; // post-line comment",
-                                        return_output=True)
-        self.assertEqual(err, "")
-        self.assertTrue(out.strip().startswith("CREATE KEYSPACE ks"))
+        def assert_describe_statement_works(stmt):
+            out, err = self.node1.run_cqlsh(stmt, return_output=True)
+            self.assertEqual(err, "")
+            self.assertTrue(out.strip().startswith("CREATE KEYSPACE ks"))
+
+        assert_describe_statement_works("DESCRIBE KEYSPACE ks; // post-line comment")
+        assert_describe_statement_works("DESCRIBE KEYSPACE ks; -- post-line comment")
+        assert_describe_statement_works("""DESCRIBE KEYSPACE ks /* multiline
+                                        comment
+                                        */
+                                        ;""")
 
     def test_colons_in_string_literals(self):
         self.create_ks(self.cursor, 'ks', 1)
@@ -738,6 +737,8 @@ class CqlshSmokeTest(Tester):
     # DROP INDEX statement fails in 2.0 (see CASSANDRA-9247)
     @since('2.1')
     def test_drop_index(self):
+        self.ignore_log_patterns = ['No secondary indexes']
+
         self.create_ks(self.cursor, 'ks', 1)
         self.create_cf(self.cursor, 'test', columns={'i': 'int'})
 
@@ -761,10 +762,13 @@ class CqlshSmokeTest(Tester):
     # DROP INDEX statement fails in 2.0 (see CASSANDRA-9247)
     @since('2.1')
     def test_create_index(self):
+        self.ignore_log_patterns = ['No secondary indexes']
+
         self.create_ks(self.cursor, 'ks', 1)
         self.create_cf(self.cursor, 'test', columns={'i': 'int'})
 
         # create a statement that will only work if there's an index on i
+
         requires_index = 'SELECT * from test WHERE i = 5;'
 
         def execute_requires_index():
