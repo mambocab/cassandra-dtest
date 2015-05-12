@@ -250,3 +250,63 @@ class CqlshCopyTest(Tester):
         result = self.session.execute("SELECT * FROM testheader")
         self.assertItemsEqual([tuple(d) for d in data],
                               [tuple(r) for r in rows_to_list(result)])
+
+    def test_explicit_column_order_writing(self):
+        self.prepare()
+        self.session.execute("""
+            CREATE TABLE testorder (
+                a int primary key,
+                b int,
+                c text
+            )""")
+
+        data = [[1, 20, 'ham'], [2, 40, 'eggs'],
+                [3, 60, 'beans'], [4, 80, 'toast']]
+        insert_statement = self.session.prepare("INSERT INTO testorder (a, b, c) VALUES (?, ?, ?)")
+        execute_concurrent_with_args(self.session, insert_statement, data)
+
+        tempfile = NamedTemporaryFile()
+
+        self.node1.run_cqlsh(
+            "COPY ks.testorder (a, c, b) TO '{name}'".format(name=tempfile.name))
+
+        reference_file = NamedTemporaryFile()
+        with open(reference_file.name, 'w') as csvfile:
+            writer = csv.writer(csvfile)
+            for a, b, c in data:
+                writer.writerow([a, c, b])
+
+        with open(tempfile.name, 'r') as x, open(reference_file.name, 'r') as y:
+            self.assertItemsEqual(list(x.readlines()), list(y.readlines()))
+
+    def test_explicit_column_order_reading(self):
+        self.prepare()
+        self.session.execute("""
+            CREATE TABLE testorder (
+                a int primary key,
+                b text,
+                c int
+            )""")
+
+        tempfile = NamedTemporaryFile()
+
+        data = [[1, 20, 'ham'], [2, 40, 'eggs'],
+                [3, 60, 'beans'], [4, 80, 'toast']]
+
+        with open(tempfile.name, 'w') as csvfile:
+            writer = csv.writer(csvfile)
+            for a, b, c in data:
+                writer.writerow([a, b, c])
+
+        self.node1.run_cqlsh(
+            "COPY ks.testorder (a, c, b) FROM '{name}'".format(name=tempfile.name))
+
+        results = list(self.session.execute("SELECT * FROM testorder"))
+        reference_file = NamedTemporaryFile()
+        with open(reference_file.name, 'w') as csvfile:
+            writer = csv.writer(csvfile)
+            for a, b, c in data:
+                writer.writerow([a, c, b])
+
+        self.assertItemsEqual(list(csv_rows(reference_file.name)),
+                              list(self.result_to_csv_rows(results)))
