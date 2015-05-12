@@ -248,6 +248,5 @@ class CqlshCopyTest(Tester):
         self.node1.run_cqlsh(cmds=cmds)
 
         result = self.session.execute("SELECT * FROM testheader")
-        self.assertEqual(len(data), len(result))
-        self.assertSetEqual(set(tuple(d) for d in data),
-                            set(tuple(r) for r in rows_to_list(result)))
+        self.assertItemsEqual([tuple(d) for d in data],
+                              [tuple(r) for r in rows_to_list(result)])
