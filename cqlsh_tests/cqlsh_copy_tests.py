@@ -287,11 +287,10 @@ class CqlshCopyTest(Tester):
                 c int
             )""")
 
-        tempfile = NamedTemporaryFile()
-
         data = [[1, 20, 'ham'], [2, 40, 'eggs'],
                 [3, 60, 'beans'], [4, 80, 'toast']]
 
+        tempfile = NamedTemporaryFile()
         with open(tempfile.name, 'w') as csvfile:
             writer = csv.writer(csvfile)
             for a, b, c in data:
