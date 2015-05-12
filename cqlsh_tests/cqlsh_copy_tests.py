@@ -309,3 +309,52 @@ class CqlshCopyTest(Tester):
                 writer.writerow([a, c, b])
 
         self.assertCsvResultEqual(reference_file.name, results)
+
+    def test_quoted_column_names_reading(self):
+        self.prepare()
+        self.session.execute("""
+            CREATE TABLE testquoted (
+                "IdNumber" int PRIMARY KEY,
+                "select" text
+            )""")
+
+        data = [[1, 'no'], [2, 'Yes'],
+                [3, 'True'], [4, 'false']]
+
+        tempfile = NamedTemporaryFile()
+        with open(tempfile.name, 'w') as csvfile:
+            writer = csv.writer(csvfile)
+            for a, b in data:
+                writer.writerow([a, b])
+
+        self.node1.run_cqlsh(
+            """COPY ks.testquoted ("IdNumber", "select") FROM '{name}'""".format(name=tempfile.name))
+
+        results = list(self.session.execute("SELECT * FROM testquoted"))
+        self.assertCsvResultEqual(tempfile.name, results)
+
+    def test_quoted_column_names_writing(self):
+        self.prepare()
+        self.session.execute("""
+            CREATE TABLE testquoted (
+                "IdNumber" int PRIMARY KEY,
+                "select" text
+            )""")
+
+        data = [[1, 'no'], [2, 'Yes'],
+                [3, 'True'], [4, 'false']]
+        insert_statement = self.session.prepare("""INSERT INTO testquoted ("IdNumber", "select") VALUES (?, ?)""")
+        execute_concurrent_with_args(self.session, insert_statement, data)
+
+        tempfile = NamedTemporaryFile()
+        self.node1.run_cqlsh(
+            """COPY ks.testquoted ("IdNumber", "select") TO '{name}'""".format(name=tempfile.name))
+
+        reference_file = NamedTemporaryFile()
+        with open(reference_file.name, 'w') as csvfile:
+            writer = csv.writer(csvfile)
+            for a, b in data:
+                writer.writerow([a, b])
+
+        with open(tempfile.name, 'r') as x, open(reference_file.name, 'r') as y:
+            self.assertItemsEqual(list(x.readlines()), list(y.readlines()))
