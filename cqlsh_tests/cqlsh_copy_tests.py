@@ -308,5 +308,4 @@ class CqlshCopyTest(Tester):
             for a, b, c in data:
                 writer.writerow([a, c, b])
 
-        self.assertItemsEqual(list(csv_rows(reference_file.name)),
-                              list(self.result_to_csv_rows(results)))
+        self.assertCsvResultEqual(reference_file.name, results)
