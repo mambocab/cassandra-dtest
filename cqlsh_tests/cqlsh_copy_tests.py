@@ -41,8 +41,8 @@ class CqlshCopyTest(Tester):
             sys.path = saved_path
 
     def assertCsvResultEqual(self, csv_filename, results):
-        self.assertSequenceEqual(list(csv_rows(csv_filename)),
-                                 list(self.result_to_csv_rows(results)))
+        self.assertItemsEqual(list(csv_rows(csv_filename)),
+                              list(self.result_to_csv_rows(results)))
 
     def result_to_csv_rows(self, result):
         '''
