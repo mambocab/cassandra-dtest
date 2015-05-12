@@ -355,3 +355,15 @@ class CqlshCopyTest(Tester):
                 writer.writerow([a, b])
 
         assert_csvs_items_equal(tempfile.name, reference_file.name)
+
+    def test_all_datatypes(self):
+        pass
+
+    def test_failed_server_validation(self):
+        pass
+
+    def test_wrong_number_of_columns(self):
+        pass
+
+    def test_node_failure_during_copy(self):
+        pass
