@@ -49,17 +49,17 @@ class CqlshCopyTest(Tester):
         Given an object returned from a CQL query, returns a string formatted by
         the cqlsh formatting utilities.
         '''
-        # This has no real dependencies on Tester except that self._cqlshlib has
-        # to grab self.cluster's install directory. This should be pulled out
-        # into a bare function if cqlshlib is made easier to interact with.
         with self._cqlshlib() as cqlshlib:
             from cqlshlib.formatting import format_value
             encoding_name = codecs.lookup(locale.getpreferredencoding()).name
 
             def fmt(val):
+                # different versions use time_format or date_time_format, but
+                # all versions reject spurious values, so we just use both here
                 return format_value(type(val), val,
                                     encoding=encoding_name,
                                     date_time_format=None,
+                                    time_format=None,
                                     float_precision=DEFAULT_FLOAT_PRECISION,
                                     colormap=DummyColorMap(),
                                     nullval=None).strval
@@ -362,8 +362,54 @@ class CqlshCopyTest(Tester):
     def test_all_datatypes(self):
         pass
 
-    def test_failed_server_validation(self):
-        pass
+    def data_validation_on_read_template(self, load_as_int, expect_invalid):
+        self.prepare()
+        self.session.execute("""
+            CREATE TABLE testvalidate (
+                a int PRIMARY KEY,
+                b int
+            )""")
+
+        data = [[1, load_as_int]]
+
+        tempfile = NamedTemporaryFile()
+        with open(tempfile.name, 'w') as csvfile:
+            writer = csv.writer(csvfile)
+            for a, b in data:
+                writer.writerow([a, b])
+
+        cmd = """COPY ks.testvalidate (a, b) FROM '{name}'""".format(name=tempfile.name)
+        out, err = self.node1.run_cqlsh(cmd, return_output=True)
+        debug('out, err:')
+
+        debug(out)
+        debug(err)
+
+        results = list(self.session.execute("SELECT * FROM testvalidate"))
+        self.assertCsvResultEqual(tempfile.name, results)
+        # if expect_invalid:
+        #     if self.cluster.version() < "2.1":
+        #         self.assertRegexpMatches(err, '(Bad Request|Invalid * constant)')
+        #     else:
+        #         self.assertRegexpMatches(err, 'Bad request')
+
+        #     self.assertFalse(results)
+        # else:
+        #     self.assertFalse(err)
+        #     self.assertCsvResultEqual(tempfile.name, results)
+
+    def test_read_valid_data(self):
+        # make sure the template works properly
+        self.data_validation_on_read_template(2, expect_invalid=False)
+
+    def test_read_invalid_float(self):
+        self.data_validation_on_read_template(2.14, expect_invalid=True)
+
+    def test_read_invalid_uuid(self):
+        self.data_validation_on_read_template(uuid4(), expect_invalid=True)
+
+    def test_read_invalid_text(self):
+        self.data_validation_on_read_template('test', expect_invalid=True)
 
     def test_wrong_number_of_columns(self):
         pass
