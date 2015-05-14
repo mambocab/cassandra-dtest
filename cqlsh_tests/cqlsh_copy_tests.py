@@ -49,6 +49,9 @@ class CqlshCopyTest(Tester):
         Given an object returned from a CQL query, returns a string formatted by
         the cqlsh formatting utilities.
         '''
+        # This has no real dependencies on Tester except that self._cqlshlib has
+        # to grab self.cluster's install directory. This should be pulled out
+        # into a bare function if cqlshlib is made easier to interact with.
         with self._cqlshlib() as cqlshlib:
             from cqlshlib.formatting import format_value
             encoding_name = codecs.lookup(locale.getpreferredencoding()).name
