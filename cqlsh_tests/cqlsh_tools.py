@@ -11,7 +11,7 @@ class DummyColorMap(object):
 
 def csv_rows(filename, delimiter=None):
     '''
-    Given a filename, opens a csv file and yeilds it line by line.
+    Given a filename, opens a csv file and yields it line by line.
     '''
     reader_opts = {}
     if delimiter is not None:
