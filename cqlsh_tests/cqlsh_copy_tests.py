@@ -248,8 +248,6 @@ class CqlshCopyTest(_CqlshCopyBase):
 
         with open(tempfile.name, 'r') as csvfile:
             csv_values = list(csv.reader(csvfile))
-        with open(tempfile.name, 'r') as csvfile:
-            debug(csvfile.read())
 
         self.assertEqual(len(csv_values), 4, msg=str(csv_values))
         self.assertSequenceEqual(csv_values,
