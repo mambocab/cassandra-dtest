@@ -73,6 +73,10 @@ class _CqlshCopyBase(Tester):
 # tests on pre-2.1 versions.
 @since('2.1')
 class CqlshCopyTest(_CqlshCopyBase):
+    '''
+    Tests the COPY TO and COPY FROM features in cqlsh.
+    @jira_ticket CASSANDRA-3906
+    '''
 
     @contextmanager
     def _cqlshlib(self):
@@ -130,6 +134,13 @@ class CqlshCopyTest(_CqlshCopyBase):
         return [[fmt(v) for v in row] for row in result]
 
     def test_list_data(self):
+        '''
+        Tests the COPY TO command with the list datatype by:
+
+        - populating a table with lists of uuids,
+        - exporting the table to a CSV file with COPY TO,
+        - comparing the CSV file to the SELECTed contents of the table.
+        '''
         self.prepare()
         self.session.execute("""
             CREATE TABLE testlist (
@@ -150,6 +161,13 @@ class CqlshCopyTest(_CqlshCopyBase):
         self.assertCsvResultEqual(tempfile.name, results)
 
     def test_tuple_data(self):
+        '''
+        Tests the COPY TO command with the tuple datatype by:
+
+        - populating a table with tuples of uuids,
+        - exporting the table to a CSV file with COPY TO,
+        - comparing the CSV file to the SELECTed contents of the table.
+        '''
         self.prepare()
         self.session.execute("""
             CREATE TABLE testtuple (
@@ -170,6 +188,16 @@ class CqlshCopyTest(_CqlshCopyBase):
         self.assertCsvResultEqual(tempfile.name, results)
 
     def non_default_delimiter_template(self, delimiter):
+        '''
+        @param delimiter the delimiter to use for the CSV file.
+
+        Test exporting to CSV files using delimiters other than ',' by:
+
+        - populating a table with integers,
+        - exporting to a CSV file, specifying a delimiter, then
+        - comparing the contents of the csv file to the SELECTed contents of the table.
+        '''
+
         self.prepare()
         self.session.execute("""
             CREATE TABLE testdelimiter (
@@ -190,15 +218,29 @@ class CqlshCopyTest(_CqlshCopyBase):
         self.assertCsvResultEqual(tempfile.name, results)
 
     def test_colon_delimiter(self):
+        '''
+        Use non_default_delimiter_template to test COPY with the delimiter ':'.
+        '''
         self.non_default_delimiter_template(':')
 
     def test_letter_delimiter(self):
+        '''
+        Use non_default_delimiter_template to test COPY with the delimiter 'a'.
+        '''
         self.non_default_delimiter_template('a')
 
     def test_number_delimiter(self):
+        '''
+        Use non_default_delimiter_template to test COPY with the delimiter '1'.
+        '''
         self.non_default_delimiter_template('1')
 
     def custom_null_indicator_template(self, indicator):
+        '''
+        @param indicator the null indicator to be used in COPY
+
+        A parametrized test that tests COPY with a given null indicator.
+        '''
         self.prepare()
         self.session.execute("""
             CREATE TABLE testnullindicator (
@@ -224,12 +266,25 @@ class CqlshCopyTest(_CqlshCopyBase):
         self.assertCsvResultEqual(tempfile.name, results)
 
     def test_undefined_as_null_indicator(self):
+        '''
+        Use custom_null_indicator_template to test COPY with NULL = undefined.
+        '''
         self.custom_null_indicator_template('undefined')
 
     def test_null_as_null_indicator(self):
+        '''
+        Use custom_null_indicator_template to test COPY with NULL = 'null'.
+        '''
         self.custom_null_indicator_template('null')
 
     def test_writing_use_header(self):
+        '''
+        Test that COPY can write a CSV with a header by:
+
+        - creating and populating a table,
+        - exporting the contents of the table to a CSV file using COPY WITH HEADER = true
+        - checking that the contents of the CSV file are the written values plus the header.
+        '''
         self.prepare()
         self.session.execute("""
             CREATE TABLE testheader (
@@ -249,11 +304,18 @@ class CqlshCopyTest(_CqlshCopyBase):
         with open(tempfile.name, 'r') as csvfile:
             csv_values = list(csv.reader(csvfile))
 
-        self.assertEqual(len(csv_values), 4, msg=str(csv_values))
         self.assertSequenceEqual(csv_values,
                                  [['a', 'b'], ['1', '10'], ['2', '20'], ['3', '30']])
 
     def test_reading_use_header(self):
+        '''
+        Test that COPY can read a CSV with a header by:
+
+        - creating a table,
+        - writing a CSV with a header,
+        - importing the contents of the CSV file using COPY WITH HEADER = true,
+        - checking that the contents of the table are the written values.
+        '''
         self.prepare()
         self.session.execute("""
             CREATE TABLE testheader (
@@ -492,6 +554,11 @@ class CqlshCopyTest(_CqlshCopyBase):
 
 
 class RoundTripTest(_CqlshCopyBase):
+    '''
+    Demonstrate that the data in a table exported with COPY TO is the same
+    after importing it with COPY FROM.
+
+    '''
 
     def test_round_trip(self):
         self.prepare()
