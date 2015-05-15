@@ -2,24 +2,77 @@
 import codecs
 from contextlib import contextmanager
 import csv
+import datetime
+from decimal import Decimal
 import locale
 import os
 import random
 import sys
 from tempfile import NamedTemporaryFile
-from uuid import uuid4
+import unittest
+from uuid import uuid1, uuid4
 
 from cassandra.concurrent import execute_concurrent_with_args
 
 from dtest import debug, Tester
-from tools import rows_to_list
+from tools import rows_to_list, since
 from cqlsh_tools import csv_rows, random_list, DummyColorMap, assert_csvs_items_equal
 
 
 DEFAULT_FLOAT_PRECISION = 5  # magic number copied from cqlsh script
 
 
-class CqlshCopyTest(Tester):
+class _CqlshCopyBase(Tester):
+
+    def prepare(self):
+        self.cluster.populate(1).start(wait_for_binary_proto=True)
+        self.node1, = self.cluster.nodelist()
+        self.session = self.patient_cql_connection(self.node1)
+        self.create_ks(self.session, 'ks', 1)
+
+    def all_datatypes_prepare(self):
+        self.prepare()
+        self.session.execute('''
+            CREATE TABLE testdatatype (
+                a ascii PRIMARY KEY,
+                b bigint,
+                c blob,
+                d boolean,
+                e decimal,
+                f double,
+                g float,
+                h inet,
+                i int,
+                j text,
+                k timestamp,
+                l timeuuid,
+                m uuid,
+                n varchar,
+                o varint
+            )''')
+        self.data = ('ascii',  # a ascii
+                     2 ** 40,  # b bigint
+                     0111,  # c blob
+                     True,  # d boolean
+                     Decimal(3.14),  # e decimal
+                     2.444,  # f double
+                     1.1,  # g float
+                     '127.0.0.1',  # h inet
+                     25,  # i int
+                     'ヽ(´ー｀)ノ',  # j text
+                     datetime.datetime(2005, 7, 14, 12, 30),  # k timestamp
+                     uuid1(),  # l timeuuid
+                     uuid4(),  # m uuid
+                     'asdf',  # n varchar
+                     2 ** 65  # o varint
+                     )
+
+
+# Reading from csv files to cqlsh-formatted strings would require extensive use
+# of the deprecated cassandra-dbapi2 project, so we skip all but the simplest
+# tests on pre-2.1 versions.
+@since('2.1')
+class CqlshCopyTest(_CqlshCopyBase):
 
     @contextmanager
     def _cqlshlib(self):
@@ -49,58 +102,32 @@ class CqlshCopyTest(Tester):
         Given an object returned from a CQL query, returns a string formatted by
         the cqlsh formatting utilities.
         '''
+        # This has no real dependencies on Tester except that self._cqlshlib has
+        # to grab self.cluster's install directory. This should be pulled out
+        # into a bare function if cqlshlib is made easier to interact with.
         with self._cqlshlib() as cqlshlib:
             from cqlshlib.formatting import format_value
+            try:
+                # doesn't properly import on 2.1, but making
+                from cqlshlib.formatting import DateTimeFormat
+                date_time_format = DateTimeFormat()
+            except ImportError:
+                date_time_format = None
             encoding_name = codecs.lookup(locale.getpreferredencoding()).name
 
             def fmt(val):
-                # different versions use time_format or date_time_format, but
-                # all versions reject spurious values, so we just use both here
+                # different versions use time_format or date_time_format
+                # but all versions reject spurious values, so we just use both
+                # here
                 return format_value(type(val), val,
                                     encoding=encoding_name,
-                                    date_time_format=None,
+                                    date_time_format=date_time_format,
                                     time_format=None,
                                     float_precision=DEFAULT_FLOAT_PRECISION,
                                     colormap=DummyColorMap(),
                                     nullval=None).strval
 
         return [[fmt(v) for v in row] for row in result]
-
-    def prepare(self):
-        self.cluster.populate(1).start(wait_for_binary_proto=True)
-        self.node1, = self.cluster.nodelist()
-        self.session = self.patient_cql_connection(self.node1)
-        self.create_ks(self.session, 'ks', 1)
-
-    def test_round_trip(self):
-        self.prepare()
-        self.session.execute("""
-            CREATE TABLE testcopyto (
-                a int,
-                b text,
-                c float,
-                d uuid,
-                PRIMARY KEY (a, b)
-            )""")
-
-        insert_statement = self.session.prepare("INSERT INTO testcopyto (a, b, c, d) VALUES (?, ?, ?, ?)")
-        args = [(i, str(i), float(i) + 0.5, uuid4()) for i in range(1000)]
-        execute_concurrent_with_args(self.session, insert_statement, args)
-
-        results = list(self.session.execute("SELECT * FROM testcopyto"))
-
-        tempfile = NamedTemporaryFile()
-        debug('Exporting to csv file: {name}'.format(name=tempfile.name))
-        self.node1.run_cqlsh(cmds="COPY ks.testcopyto TO '{name}'".format(name=tempfile.name))
-
-        self.assertCsvResultEqual(tempfile.name, results)
-
-        # import the CSV file with COPY FROM
-        self.session.execute("TRUNCATE ks.testcopyto")
-        debug('Importing from csv file: {name}'.format(name=tempfile.name))
-        self.node1.run_cqlsh(cmds="COPY ks.testcopyto FROM '{name}'".format(name=tempfile.name))
-        new_results = list(self.session.execute("SELECT * FROM testcopyto"))
-        self.assertEqual(results, new_results)
 
     def test_list_data(self):
         self.prepare()
@@ -359,9 +386,6 @@ class CqlshCopyTest(Tester):
 
         assert_csvs_items_equal(tempfile.name, reference_file.name)
 
-    def test_all_datatypes(self):
-        pass
-
     def data_validation_on_read_template(self, load_as_int, expect_invalid):
         self.prepare()
         self.session.execute("""
@@ -380,23 +404,14 @@ class CqlshCopyTest(Tester):
 
         cmd = """COPY ks.testvalidate (a, b) FROM '{name}'""".format(name=tempfile.name)
         out, err = self.node1.run_cqlsh(cmd, return_output=True)
-        debug('out, err:')
-
-        debug(out)
-        debug(err)
-
         results = list(self.session.execute("SELECT * FROM testvalidate"))
-        self.assertCsvResultEqual(tempfile.name, results)
-        # if expect_invalid:
-        #     if self.cluster.version() < "2.1":
-        #         self.assertRegexpMatches(err, '(Bad Request|Invalid * constant)')
-        #     else:
-        #         self.assertRegexpMatches(err, 'Bad request')
 
-        #     self.assertFalse(results)
-        # else:
-        #     self.assertFalse(err)
-        #     self.assertCsvResultEqual(tempfile.name, results)
+        if expect_invalid:
+            self.assertRegexpMatches('Bad [Rr]equest', err)
+            self.assertFalse(results)
+        else:
+            self.assertFalse(err)
+            self.assertCsvResultEqual(tempfile.name, results)
 
     def test_read_valid_data(self):
         # make sure the template works properly
@@ -411,8 +426,111 @@ class CqlshCopyTest(Tester):
     def test_read_invalid_text(self):
         self.data_validation_on_read_template('test', expect_invalid=True)
 
-    def test_wrong_number_of_columns(self):
-        pass
+    # The next two tests fail due to differences in cqlsh formatting. At
+    # initialization time, cqlsh monkey-patches the Cassandra driver so blobs
+    # are decoded differently. If this changes, un-skip these tests. In the
+    # meantime, the round-trip test for all datatypes shows that COPY works,
+    # though the contents of the CSV aren't defined in cqlshlib.
+    @unittest.skip('fails due to formatting differences in and out of cqlsh')
+    def test_all_datatypes_write(self):
+        self.all_datatypes_prepare()
 
-    def test_node_failure_during_copy(self):
-        pass
+        insert_statement = self.session.prepare(
+            """INSERT INTO testdatatype (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""")
+        self.session.execute(insert_statement, self.data)
+
+        tempfile = NamedTemporaryFile()
+        debug('Exporting to csv file: {name}'.format(name=tempfile.name))
+        self.node1.run_cqlsh(cmds="COPY ks.testdatatype TO '{name}'".format(name=tempfile.name))
+
+        results = list(self.session.execute("SELECT * FROM testdatatype"))
+
+        self.assertCsvResultEqual(tempfile.name, results)
+
+    @unittest.skip('fails due to formatting differences in and out of cqlsh')
+    def test_all_datatypes_read(self):
+        self.all_datatypes_prepare()
+
+        tempfile = NamedTemporaryFile()
+        with open(tempfile.name, 'w') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(self.data)
+
+        debug('Importing from csv file: {name}'.format(name=tempfile.name))
+        self.node1.run_cqlsh(cmds="COPY ks.testdatatype FROM '{name}'".format(name=tempfile.name))
+
+        results = list(self.session.execute("SELECT * FROM testdatatype"))
+
+        self.assertCsvResultEqual(tempfile.name, results)
+
+    def test_all_datatypes_round_trip(self):
+        self.all_datatypes_prepare()
+
+        insert_statement = self.session.prepare(
+            """INSERT INTO testdatatype (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""")
+        self.session.execute(insert_statement, self.data)
+
+        tempfile = NamedTemporaryFile()
+        debug('Exporting to csv file: {name}'.format(name=tempfile.name))
+        self.node1.run_cqlsh(cmds="COPY ks.testdatatype TO '{name}'".format(name=tempfile.name))
+
+        exported_results = list(self.session.execute("SELECT * FROM testdatatype"))
+
+        self.session.execute('TRUNCATE testdatatype')
+        self.node1.run_cqlsh(cmds="COPY ks.testdatatype FROM '{name}'".format(name=tempfile.name))
+
+        imported_results = list(self.session.execute("SELECT * FROM testdatatype"))
+
+        self.assertEqual(exported_results, imported_results)
+
+    def test_wrong_number_of_columns(self):
+        self.prepare()
+        self.session.execute("""
+            CREATE TABLE testcolumns (
+                a int PRIMARY KEY
+            )""")
+
+        data = [[1, 2]]
+        tempfile = NamedTemporaryFile()
+        with open(tempfile.name, 'w') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(data)
+
+        debug('Importing from csv file: {name}'.format(name=tempfile.name))
+        out, err = self.node1.run_cqlsh("COPY ks.testcolumns FROM '{name}'".format(name=tempfile.name),
+                                        return_output=True)
+
+        self.assertFalse(err)
+
+
+class RoundTripTest(_CqlshCopyBase):
+
+    def test_round_trip(self):
+        self.prepare()
+        self.session.execute("""
+            CREATE TABLE testcopyto (
+                a int,
+                b text,
+                c float,
+                d uuid,
+                PRIMARY KEY (a, b)
+            )""")
+
+        insert_statement = self.session.prepare("INSERT INTO testcopyto (a, b, c, d) VALUES (?, ?, ?, ?)")
+        args = [(i, str(i), float(i) + 0.5, uuid4()) for i in range(1000)]
+        execute_concurrent_with_args(self.session, insert_statement, args)
+
+        results = list(self.session.execute("SELECT * FROM testcopyto"))
+
+        tempfile = NamedTemporaryFile()
+        debug('Exporting to csv file: {name}'.format(name=tempfile.name))
+        self.node1.run_cqlsh(cmds="COPY ks.testcopyto TO '{name}'".format(name=tempfile.name))
+
+        # import the CSV file with COPY FROM
+        self.session.execute("TRUNCATE ks.testcopyto")
+        debug('Importing from csv file: {name}'.format(name=tempfile.name))
+        self.node1.run_cqlsh(cmds="COPY ks.testcopyto FROM '{name}'".format(name=tempfile.name))
+        new_results = list(self.session.execute("SELECT * FROM testcopyto"))
+        self.assertEqual(results, new_results)
