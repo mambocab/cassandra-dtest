@@ -319,10 +319,7 @@ class CqlshCopyTest(_CqlshCopyBase):
                 [3, 60, 'beans'], [4, 80, 'toast']]
 
         tempfile = NamedTemporaryFile()
-        with open(tempfile.name, 'w') as csvfile:
-            writer = csv.writer(csvfile)
-            for a, b, c in data:
-                writer.writerow([a, b, c])
+        write_rows_to_csv(tempfile.name, data)
 
         self.node1.run_cqlsh(
             "COPY ks.testorder (a, c, b) FROM '{name}'".format(name=tempfile.name))
@@ -348,10 +345,7 @@ class CqlshCopyTest(_CqlshCopyBase):
                 [3, 'True'], [4, 'false']]
 
         tempfile = NamedTemporaryFile()
-        with open(tempfile.name, 'w') as csvfile:
-            writer = csv.writer(csvfile)
-            for a, b in data:
-                writer.writerow([a, b])
+        write_rows_to_csv(tempfile.name, data)
 
         self.node1.run_cqlsh(
             """COPY ks.testquoted ("IdNumber", "select") FROM '{name}'""".format(name=tempfile.name))
@@ -377,10 +371,7 @@ class CqlshCopyTest(_CqlshCopyBase):
             """COPY ks.testquoted ("IdNumber", "select") TO '{name}'""".format(name=tempfile.name))
 
         reference_file = NamedTemporaryFile()
-        with open(reference_file.name, 'w') as csvfile:
-            writer = csv.writer(csvfile)
-            for a, b in data:
-                writer.writerow([a, b])
+        write_rows_to_csv(reference_file.name, data)
 
         assert_csvs_items_equal(tempfile.name, reference_file.name)
 
@@ -395,10 +386,7 @@ class CqlshCopyTest(_CqlshCopyBase):
         data = [[1, load_as_int]]
 
         tempfile = NamedTemporaryFile()
-        with open(tempfile.name, 'w') as csvfile:
-            writer = csv.writer(csvfile)
-            for a, b in data:
-                writer.writerow([a, b])
+        write_rows_to_csv(tempfile.name, data)
 
         cmd = """COPY ks.testvalidate (a, b) FROM '{name}'""".format(name=tempfile.name)
         out, err = self.node1.run_cqlsh(cmd, return_output=True)
@@ -532,3 +520,10 @@ class RoundTripTest(_CqlshCopyBase):
         self.node1.run_cqlsh(cmds="COPY ks.testcopyto FROM '{name}'".format(name=tempfile.name))
         new_results = list(self.session.execute("SELECT * FROM testcopyto"))
         self.assertEqual(results, new_results)
+
+
+def write_rows_to_csv(filename, data):
+    with open(filename, 'w') as csvfile:
+        writer = csv.writer(csvfile)
+        for row in data:
+            writer.writerow(row)
