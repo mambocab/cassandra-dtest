@@ -280,8 +280,10 @@ class CqlshCopyTest(Tester):
         Test that COPY can write a CSV with a header by:
 
         - creating and populating a table,
-        - exporting the contents of the table to a CSV file using COPY WITH HEADER = true
-        - checking that the contents of the CSV file are the written values plus the header.
+        - exporting the contents of the table to a CSV file using COPY WITH
+        HEADER = true
+        - checking that the contents of the CSV file are the written values plus
+        the header.
         '''
         self.prepare()
         self.session.execute("""
