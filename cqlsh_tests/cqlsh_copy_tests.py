@@ -343,6 +343,16 @@ class CqlshCopyTest(_CqlshCopyBase):
                               [tuple(r) for r in rows_to_list(result)])
 
     def test_explicit_column_order_writing(self):
+        '''
+        Test that COPY can write to a CSV file when the order of columns is
+        explicitly specified by:
+
+        - creating a table,
+        - COPYing to a CSV file with columns in a different order than they
+        appeared in the CREATE TABLE statement,
+        - writing a CSV file with the columns in that order, and
+        - asserting that the two CSV files contain the same values.
+        '''
         self.prepare()
         self.session.execute("""
             CREATE TABLE testorder (
@@ -370,6 +380,17 @@ class CqlshCopyTest(_CqlshCopyBase):
         assert_csvs_items_equal(tempfile.name, reference_file.name)
 
     def test_explicit_column_order_reading(self):
+        '''
+        Test that COPY can write to a CSV file when the order of columns is
+        explicitly specified by:
+
+        - creating a table,
+        - writing a CSV file containing columns with the same types as the
+        table, but in a different order,
+        - COPYing the contents of that CSV into the table by specifying the
+        order of the columns,
+        - asserting that the values in the CSV file match those in the table.
+        '''
         self.prepare()
         self.session.execute("""
             CREATE TABLE testorder (
@@ -397,6 +418,15 @@ class CqlshCopyTest(_CqlshCopyBase):
         self.assertCsvResultEqual(reference_file.name, results)
 
     def test_quoted_column_names_reading(self):
+        '''
+        Test that COPY can read from a CSV file into a table with quoted column
+        names by:
+
+        - creating a table with quoted column names,
+        - writing test data to a CSV file,
+        - COPYing that CSV file into the table, explicitly naming columns, and
+        - asserting that the CSV file and the table contain the same data.
+        '''
         self.prepare()
         self.session.execute("""
             CREATE TABLE testquoted (
@@ -417,6 +447,15 @@ class CqlshCopyTest(_CqlshCopyBase):
         self.assertCsvResultEqual(tempfile.name, results)
 
     def test_quoted_column_names_writing(self):
+        '''
+        Test that COPY can write to a table with quoted column names by:
+
+        - creating a table with quoted column names,
+        - inserting test data into that table,
+        - COPYing that table into a CSV file into the table, explicitly naming columns,
+        - writing that test data to a CSV file,
+        - asserting that the two CSV files contain the same rows.
+        '''
         self.prepare()
         self.session.execute("""
             CREATE TABLE testquoted (
@@ -439,6 +478,22 @@ class CqlshCopyTest(_CqlshCopyBase):
         assert_csvs_items_equal(tempfile.name, reference_file.name)
 
     def data_validation_on_read_template(self, load_as_int, expect_invalid):
+        '''
+        @param load_as_int the value that will be loaded into a table as an int value
+        @param expect_invalid whether or not to expect the COPY statement to fail
+
+        Test that reading from CSV files fails when there is a type mismatch
+        between the value being loaded and the type of the column by:
+
+        - creating a table,
+        - writing a CSV file containing the value passed in as load_as_int, then
+        - COPYing that csv file into the table, loading load_as_int as an int.
+
+        If expect_invalid, this test will succeed when the COPY command fails
+        with a "Bad request" error message. If not expect_invalid, this test
+        will succeed when the COPY command prints no errors and the table
+        matches the loaded CSV file.
+        '''
         self.prepare()
         self.session.execute("""
             CREATE TABLE testvalidate (
@@ -463,16 +518,33 @@ class CqlshCopyTest(_CqlshCopyBase):
             self.assertCsvResultEqual(tempfile.name, results)
 
     def test_read_valid_data(self):
+        '''
+        Use data_validation_on_read_template to test COPYing an int value from a
+        CSV into an int column. This test exists to make sure the parameterized
+        test works.
+        '''
         # make sure the template works properly
         self.data_validation_on_read_template(2, expect_invalid=False)
 
     def test_read_invalid_float(self):
+        '''
+        Use data_validation_on_read_template to test COPYing a float value from a
+        CSV into an int column.
+        '''
         self.data_validation_on_read_template(2.14, expect_invalid=True)
 
     def test_read_invalid_uuid(self):
+        '''
+        Use data_validation_on_read_template to test COPYing a uuid value from a
+        CSV into an int column.
+        '''
         self.data_validation_on_read_template(uuid4(), expect_invalid=True)
 
     def test_read_invalid_text(self):
+        '''
+        Use data_validation_on_read_template to test COPYing a text value from a
+        CSV into an int column.
+        '''
         self.data_validation_on_read_template('test', expect_invalid=True)
 
     # The next two tests fail due to differences in cqlsh formatting. At
@@ -482,6 +554,14 @@ class CqlshCopyTest(_CqlshCopyBase):
     # though the contents of the CSV aren't defined in cqlshlib.
     @unittest.skip('fails due to formatting differences in and out of cqlsh')
     def test_all_datatypes_write(self):
+        '''
+        Test that, after COPYing a table containing all CQL datatypes to a CSV
+        file, that the table contains the same values as the CSV by:
+
+        - creating and populating a table containing all datatypes,
+        - COPYing the contents of that table to a CSV file, and
+        - asserting that the CSV file contains the same data as the table.
+        '''
         self.all_datatypes_prepare()
 
         insert_statement = self.session.prepare(
@@ -499,6 +579,15 @@ class CqlshCopyTest(_CqlshCopyBase):
 
     @unittest.skip('fails due to formatting differences in and out of cqlsh')
     def test_all_datatypes_read(self):
+        '''
+        Test that, after COPYing a CSV file to a table containing all CQL
+        datatypes, that the table contains the same values as the CSV by:
+
+        - creating a table containing all datatypes,
+        - writing a corresponding CSV file containing each datatype,
+        - COPYing the CSV file into the table, and
+        - asserting that the CSV file contains the same data as the table.
+        '''
         self.all_datatypes_prepare()
 
         tempfile = NamedTemporaryFile()
@@ -514,6 +603,18 @@ class CqlshCopyTest(_CqlshCopyBase):
         self.assertCsvResultEqual(tempfile.name, results)
 
     def test_all_datatypes_round_trip(self):
+        '''
+        Test that a table containing all CQL datatypes successfully round-trips
+        to and from a CSV file via COPY by:
+
+        - creating and populating a table containing every datatype,
+        - COPYing that table to a CSV file,
+        - SELECTing the contents of the table,
+        - TRUNCATEing the table,
+        - COPYing the written CSV file back into the table, and
+        - asserting that the previously-SELECTed contents of the table match the
+        current contents of the table.
+        '''
         self.all_datatypes_prepare()
 
         insert_statement = self.session.prepare(
@@ -535,6 +636,15 @@ class CqlshCopyTest(_CqlshCopyBase):
         self.assertEqual(exported_results, imported_results)
 
     def test_wrong_number_of_columns(self):
+        '''
+        Test that a COPY statement will fail when trying to import from a CSV
+        file with the wrong number of columns by:
+
+        - creating a table with a single column,
+        - writing a CSV file with two columns,
+        - attempting to COPY the CSV file into the table, and
+        - asserting that the COPY operation failed.
+        '''
         self.prepare()
         self.session.execute("""
             CREATE TABLE testcolumns (
@@ -562,6 +672,18 @@ class RoundTripTest(_CqlshCopyBase):
     '''
 
     def test_round_trip(self):
+        '''
+        Test a simple round trip of a small CQL table to and from a CSV file via
+        COPY.
+
+        - creating and populating a table,
+        - COPYing that table to a CSV file,
+        - SELECTing the contents of the table,
+        - TRUNCATEing the table,
+        - COPYing the written CSV file back into the table, and
+        - asserting that the previously-SELECTed contents of the table match the
+        current contents of the table.
+        '''
         self.prepare()
         self.session.execute("""
             CREATE TABLE testcopyto (
