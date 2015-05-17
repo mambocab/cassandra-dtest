@@ -23,7 +23,15 @@ from cqlsh_tools import (csv_rows, random_list, DummyColorMap,
 DEFAULT_FLOAT_PRECISION = 5  # magic number copied from cqlsh script
 
 
-class _CqlshCopyBase(Tester):
+# Reading from csv files to cqlsh-formatted strings would require extensive use
+# of the deprecated cassandra-dbapi2 project, so we skip all but the simplest
+# tests on pre-2.1 versions.
+@since('2.1')
+class CqlshCopyTest(Tester):
+    '''
+    Tests the COPY TO and COPY FROM features in cqlsh.
+    @jira_ticket CASSANDRA-3906
+    '''
 
     def prepare(self):
         self.cluster.populate(1).start(wait_for_binary_proto=True)
@@ -67,17 +75,6 @@ class _CqlshCopyBase(Tester):
                      'asdf',  # n varchar
                      2 ** 65  # o varint
                      )
-
-
-# Reading from csv files to cqlsh-formatted strings would require extensive use
-# of the deprecated cassandra-dbapi2 project, so we skip all but the simplest
-# tests on pre-2.1 versions.
-@since('2.1')
-class CqlshCopyTest(_CqlshCopyBase):
-    '''
-    Tests the COPY TO and COPY FROM features in cqlsh.
-    @jira_ticket CASSANDRA-3906
-    '''
 
     @contextmanager
     def _cqlshlib(self):
@@ -662,14 +659,6 @@ class CqlshCopyTest(_CqlshCopyBase):
                                         return_output=True)
 
         self.assertFalse(err)
-
-
-class RoundTripTest(_CqlshCopyBase):
-    '''
-    Demonstrate that the data in a table exported with COPY TO is the same
-    after importing it with COPY FROM.
-
-    '''
 
     def test_round_trip(self):
         '''
