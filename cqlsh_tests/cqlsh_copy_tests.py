@@ -16,7 +16,8 @@ from cassandra.concurrent import execute_concurrent_with_args
 
 from dtest import debug, Tester
 from tools import rows_to_list, since
-from cqlsh_tools import csv_rows, random_list, DummyColorMap, assert_csvs_items_equal
+from cqlsh_tools import (csv_rows, random_list, DummyColorMap,
+                         assert_csvs_items_equal, write_rows_to_csv)
 
 
 DEFAULT_FLOAT_PRECISION = 5  # magic number copied from cqlsh script
@@ -587,10 +588,3 @@ class RoundTripTest(_CqlshCopyBase):
         self.node1.run_cqlsh(cmds="COPY ks.testcopyto FROM '{name}'".format(name=tempfile.name))
         new_results = list(self.session.execute("SELECT * FROM testcopyto"))
         self.assertEqual(results, new_results)
-
-
-def write_rows_to_csv(filename, data):
-    with open(filename, 'w') as csvfile:
-        writer = csv.writer(csvfile)
-        for row in data:
-            writer.writerow(row)

@@ -38,3 +38,10 @@ def random_list(gen=None, n=None):
             return n
 
     return [gen() for _ in range(length())]
+
+
+def write_rows_to_csv(filename, data):
+    with open(filename, 'w') as csvfile:
+        writer = csv.writer(csvfile)
+        for row in data:
+            writer.writerow(row)
