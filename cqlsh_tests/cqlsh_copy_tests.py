@@ -25,9 +25,6 @@ from cqlsh_tools import (csv_rows, random_list, DummyColorMap,
 DEFAULT_FLOAT_PRECISION = 5  # magic number copied from cqlsh script
 
 
-# Reading from csv files to cqlsh-formatted strings would require extensive use
-# of the deprecated cassandra-dbapi2 project pre-2.1
-@since('2.1')
 @canReuseCluster
 class CqlshCopyTest(Tester):
     '''
