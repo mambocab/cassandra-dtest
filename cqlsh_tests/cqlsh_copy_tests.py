@@ -441,15 +441,19 @@ class CqlshCopyTest(Tester):
 
         self.assertCsvResultEqual(reference_file.name, results)
 
-    def test_quoted_column_names_reading(self):
+    def quoted_column_names_reading_template(self, specify_column_names):
         '''
-        Test that COPY can read from a CSV file into a table with quoted column
-        names by:
+        @param specify_column_names if truthy, specify column names in COPY statement
+        A parameterized test. Tests that COPY can read from a CSV file into a
+        table with quoted column names by:
 
         - creating a table with quoted column names,
         - writing test data to a CSV file,
         - COPYing that CSV file into the table, explicitly naming columns, and
         - asserting that the CSV file and the table contain the same data.
+
+        If the specify_column_names parameter is truthy, the COPY statement
+        explicitly names the columns.
         '''
         self.prepare()
         self.session.execute("""
@@ -464,21 +468,45 @@ class CqlshCopyTest(Tester):
         tempfile = NamedTemporaryFile()
         write_rows_to_csv(tempfile.name, data)
 
-        self.node1.run_cqlsh(
-            """COPY ks.testquoted ("IdNumber", "select") FROM '{name}'""".format(name=tempfile.name))
+        stmt = ("""COPY ks.testquoted ("IdNumber", "select") FROM '{name}'"""
+                if specify_column_names else
+                """COPY ks.testquoted FROM '{name}'""").format(name=tempfile.name)
+
+        self.node1.run_cqlsh(stmt)
 
         results = list(self.session.execute("SELECT * FROM testquoted"))
         self.assertCsvResultEqual(tempfile.name, results)
 
-    def test_quoted_column_names_writing(self):
+    def test_quoted_column_names_reading_specify_names(self):
         '''
-        Test that COPY can write to a table with quoted column names by:
+        Use quoted_column_names_reading_template to test reading from a CSV file
+        into a table with quoted column names, explicitly specifying the column
+        names in the COPY statement.
+        '''
+        self.quoted_column_names_reading_template(specify_column_names=True)
+
+    def test_quoted_column_names_reading_dont_specify_names(self):
+        '''
+        Use quoted_column_names_reading_template to test reading from a CSV file
+        into a table with quoted column names, without explicitly specifying the
+        column names in the COPY statement.
+        '''
+        self.quoted_column_names_reading_template(specify_column_names=False)
+
+    def quoted_column_names_writing_template(self, specify_column_names):
+        '''
+        @param specify_column_names if truthy, specify column names in COPY statement
+        A parameterized test. Test that COPY can write to a table with quoted
+        column names by:
 
         - creating a table with quoted column names,
         - inserting test data into that table,
         - COPYing that table into a CSV file into the table, explicitly naming columns,
         - writing that test data to a CSV file,
         - asserting that the two CSV files contain the same rows.
+
+        If the specify_column_names parameter is truthy, the COPY statement
+        explicitly names the columns.
         '''
         self.prepare()
         self.session.execute("""
@@ -493,13 +521,21 @@ class CqlshCopyTest(Tester):
         execute_concurrent_with_args(self.session, insert_statement, data)
 
         tempfile = NamedTemporaryFile()
-        self.node1.run_cqlsh(
-            """COPY ks.testquoted ("IdNumber", "select") TO '{name}'""".format(name=tempfile.name))
+        stmt = ("""COPY ks.testquoted ("IdNumber", "select") TO '{name}'"""
+                if specify_column_names else
+                """COPY ks.testquoted TO '{name}'""").format(name=tempfile.name)
+        self.node1.run_cqlsh(stmt)
 
         reference_file = NamedTemporaryFile()
         write_rows_to_csv(reference_file.name, data)
 
         assert_csvs_items_equal(tempfile.name, reference_file.name)
+
+    def test_quoted_column_names_writing_specify_names(self):
+        self.quoted_column_names_writing_template(specify_column_names=True)
+
+    def test_quoted_column_names_writing_dont_specify_names(self):
+        self.quoted_column_names_writing_template(specify_column_names=False)
 
     def data_validation_on_read_template(self, load_as_int, expect_invalid):
         '''
