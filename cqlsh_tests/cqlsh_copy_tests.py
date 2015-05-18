@@ -9,6 +9,7 @@ import os
 import random
 import sys
 from tempfile import NamedTemporaryFile
+import time
 import unittest
 from uuid import uuid1, uuid4
 
@@ -76,9 +77,10 @@ class CqlshCopyTest(Tester):
                 n varchar,
                 o varint
             )''')
+
         self.data = ('ascii',  # a ascii
                      2 ** 40,  # b bigint
-                     0111,  # c blob
+                     '0xbeef',  # c blob
                      True,  # d boolean
                      Decimal(3.14),  # e decimal
                      2.444,  # f double
@@ -113,8 +115,39 @@ class CqlshCopyTest(Tester):
             sys.path = saved_path
 
     def assertCsvResultEqual(self, csv_filename, results):
-        self.assertItemsEqual(list(csv_rows(csv_filename)),
-                              list(self.result_to_csv_rows(results)))
+        result_list = list(self.result_to_csv_rows(results))
+        processed_results = [[strip_timezone_if_time_string(v) for v in row]
+                             for row in result_list]
+
+        csv_file = list(csv_rows(csv_filename))
+        processed_csv = [[strip_timezone_if_time_string(v) for v in row]
+                         for row in csv_file]
+
+        self.assertItemsEqual(processed_csv,
+                              processed_results)
+
+    def format_for_csv(self, val):
+        with self._cqlshlib() as cqlshlib:
+            from cqlshlib.formatting import format_value
+            try:
+                from cqlshlib.formatting import DateTimeFormat
+                date_time_format = DateTimeFormat()
+            except ImportError:
+                date_time_format = None
+            # try:
+            #     from cqlshlib.formatting
+        encoding_name = codecs.lookup(locale.getpreferredencoding()).name
+
+        # different versions use time_format or date_time_format
+        # but all versions reject spurious values, so we just use both
+        # here
+        return format_value(type(val), val,
+                            encoding=encoding_name,
+                            date_time_format=date_time_format,
+                            time_format='',
+                            float_precision=DEFAULT_FLOAT_PRECISION,
+                            colormap=DummyColorMap(),
+                            nullval=None).strval
 
     def result_to_csv_rows(self, result):
         '''
@@ -124,29 +157,7 @@ class CqlshCopyTest(Tester):
         # This has no real dependencies on Tester except that self._cqlshlib has
         # to grab self.cluster's install directory. This should be pulled out
         # into a bare function if cqlshlib is made easier to interact with.
-        with self._cqlshlib() as cqlshlib:
-            from cqlshlib.formatting import format_value
-            try:
-                # doesn't properly import on 2.1, but making
-                from cqlshlib.formatting import DateTimeFormat
-                date_time_format = DateTimeFormat()
-            except ImportError:
-                date_time_format = None
-            encoding_name = codecs.lookup(locale.getpreferredencoding()).name
-
-            def fmt(val):
-                # different versions use time_format or date_time_format
-                # but all versions reject spurious values, so we just use both
-                # here
-                return format_value(type(val), val,
-                                    encoding=encoding_name,
-                                    date_time_format=date_time_format,
-                                    time_format=None,
-                                    float_precision=DEFAULT_FLOAT_PRECISION,
-                                    colormap=DummyColorMap(),
-                                    nullval=None).strval
-
-        return [[fmt(v) for v in row] for row in result]
+        return [[self.format_for_csv(v) for v in row] for row in result]
 
     def test_list_data(self):
         '''
@@ -563,12 +574,6 @@ class CqlshCopyTest(Tester):
         '''
         self.data_validation_on_read_template('test', expect_invalid=True)
 
-    # The next two tests fail due to differences in cqlsh formatting. At
-    # initialization time, cqlsh monkey-patches the Cassandra driver so blobs
-    # are decoded differently. If this changes, un-skip these tests. In the
-    # meantime, the round-trip test for all datatypes shows that COPY works,
-    # though the contents of the CSV aren't defined in cqlshlib.
-    @unittest.skip('fails due to formatting differences in and out of cqlsh')
     def test_all_datatypes_write(self):
         '''
         Test that, after COPYing a table containing all CQL datatypes to a CSV
@@ -593,7 +598,6 @@ class CqlshCopyTest(Tester):
 
         self.assertCsvResultEqual(tempfile.name, results)
 
-    @unittest.skip('fails due to formatting differences in and out of cqlsh')
     def test_all_datatypes_read(self):
         '''
         Test that, after COPYing a CSV file to a table containing all CQL
@@ -644,7 +648,7 @@ class CqlshCopyTest(Tester):
 
         exported_results = list(self.session.execute("SELECT * FROM testdatatype"))
 
-        self.session.execute('TRUNCATE testdatatype')
+        self.session.execute('TRUNCATE ks.testdatatype')
         self.node1.run_cqlsh(cmds="COPY ks.testdatatype FROM '{name}'".format(name=tempfile.name))
 
         imported_results = list(self.session.execute("SELECT * FROM testdatatype"))

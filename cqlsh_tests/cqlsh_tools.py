@@ -1,5 +1,8 @@
 import csv
+import datetime
+from datetime import tzinfo, timedelta
 import random
+import time
 
 from nose.tools import assert_items_equal
 
@@ -19,6 +22,16 @@ def csv_rows(filename, delimiter=None):
     with open(filename, 'r') as csvfile:
         for row in csv.reader(csvfile, **reader_opts):
             yield row
+
+
+def strip_timezone_if_time_string(s):
+    try:
+        time_string_no_tz = s[:-5]
+        time_struct = time.strptime(time_string_no_tz, '%Y-%m-%d %H:%M:%S')
+        dt_no_timezone = datetime.datetime(*time_struct[:6])
+        return dt_no_timezone.strftime('%Y-%m-%d %H:%M:%S')
+    except:
+        return s
 
 
 def assert_csvs_items_equal(filename1, filename2):
