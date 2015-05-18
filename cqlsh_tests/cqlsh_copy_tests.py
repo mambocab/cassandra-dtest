@@ -12,9 +12,10 @@ from tempfile import NamedTemporaryFile
 import unittest
 from uuid import uuid1, uuid4
 
+import cassandra
 from cassandra.concurrent import execute_concurrent_with_args
 
-from dtest import debug, Tester
+from dtest import debug, Tester, canReuseCluster
 from tools import rows_to_list, since
 from cqlsh_tools import (csv_rows, random_list, DummyColorMap,
                          assert_csvs_items_equal, write_rows_to_csv)
@@ -27,16 +28,33 @@ DEFAULT_FLOAT_PRECISION = 5  # magic number copied from cqlsh script
 # of the deprecated cassandra-dbapi2 project, so we skip all but the simplest
 # tests on pre-2.1 versions.
 @since('2.1')
+@canReuseCluster
 class CqlshCopyTest(Tester):
     '''
     Tests the COPY TO and COPY FROM features in cqlsh.
     @jira_ticket CASSANDRA-3906
     '''
+    @classmethod
+    def setUpClass(cls):
+        # monkeypatch cassandra library in the same way cqlsh does
+        cls._cached_deserialize = cassandra.cqltypes.BytesType.deserialize
+        cassandra.cqltypes.BytesType.deserialize = staticmethod(lambda byts, protocol_version: bytearray(byts))
+        cls._cached_support_empty_values = cassandra.cqltypes.CassandraType.support_empty_values
+        cassandra.cqltypes.CassandraType.support_empty_values = True
+
+    @classmethod
+    def tearDownClass(cls):
+        # undo monkeypatching from setUpClass
+        cassandra.cqltypes.BytesType.deserialize = cls._cached_deserialize
+        cassandra.cqltypes.CassandraType.support_empty_values = cls._cached_support_empty_values
 
     def prepare(self):
-        self.cluster.populate(1).start(wait_for_binary_proto=True)
+        if not self.cluster.nodelist():
+            self.cluster.populate(1).start(wait_for_binary_proto=True)
         self.node1, = self.cluster.nodelist()
         self.session = self.patient_cql_connection(self.node1)
+
+        self.session.execute('DROP KEYSPACE IF EXISTS ks')
         self.create_ks(self.session, 'ks', 1)
 
     def all_datatypes_prepare(self):
