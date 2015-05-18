@@ -665,20 +665,20 @@ class CqlshCopyTest(Tester):
         self.prepare()
         self.session.execute("""
             CREATE TABLE testcolumns (
-                a int PRIMARY KEY
+                a int PRIMARY KEY,
+                b int
             )""")
 
-        data = [[1, 2]]
+        data = [[1, 2, 3]]
         tempfile = NamedTemporaryFile()
-        with open(tempfile.name, 'w') as csvfile:
-            writer = csv.writer(csvfile)
-            writer.writerow(data)
+        write_rows_to_csv(tempfile.name, data)
 
         debug('Importing from csv file: {name}'.format(name=tempfile.name))
         out, err = self.node1.run_cqlsh("COPY ks.testcolumns FROM '{name}'".format(name=tempfile.name),
                                         return_output=True)
 
-        self.assertFalse(err)
+        self.assertFalse(self.session.execute("SELECT * FROM testcolumns"))
+        self.assertIn('Aborting import', err)
 
     def test_round_trip(self):
         '''
