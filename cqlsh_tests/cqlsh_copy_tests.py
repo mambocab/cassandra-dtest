@@ -18,15 +18,14 @@ from cassandra.concurrent import execute_concurrent_with_args
 from dtest import debug, Tester, canReuseCluster
 from tools import rows_to_list, since
 from cqlsh_tools import (csv_rows, random_list, DummyColorMap,
-                         assert_csvs_items_equal, write_rows_to_csv)
-
+                         assert_csvs_items_equal, write_rows_to_csv,
+                         strip_timezone_if_time_string)
 
 DEFAULT_FLOAT_PRECISION = 5  # magic number copied from cqlsh script
 
 
 # Reading from csv files to cqlsh-formatted strings would require extensive use
-# of the deprecated cassandra-dbapi2 project, so we skip all but the simplest
-# tests on pre-2.1 versions.
+# of the deprecated cassandra-dbapi2 project pre-2.1
 @since('2.1')
 @canReuseCluster
 class CqlshCopyTest(Tester):
