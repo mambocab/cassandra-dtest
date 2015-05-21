@@ -5,8 +5,6 @@ from cassandra import ConsistencyLevel
 from cassandra.query import SimpleStatement
 from tools import no_vnodes, insert_c1c2, query_c1c2, since
 
-from nose.plugins.attrib import attr
-
 
 class TestRepair(Tester):
 
@@ -304,7 +302,6 @@ class TestRepairDataSystemTable(Tester):
         else:
             self.assertTrue(len(repair_history))
 
-    @attr('now')
     def repair_parent_table_same_node_test(self):
         '''
         Uses repair_history_template to test that `parent_repair_history` on a
@@ -312,7 +309,6 @@ class TestRepairDataSystemTable(Tester):
         '''
         self.repair_history_template(repair_node=self.node1, check_node=self.node1, parent=True)
 
-    @attr('now')
     def repair_table_same_node_test(self):
         '''
         Uses repair_history_template to test that `repair_history` on a node
@@ -320,7 +316,6 @@ class TestRepairDataSystemTable(Tester):
         '''
         self.repair_history_template(repair_node=self.node1, check_node=self.node1, parent=False)
 
-    @attr('now')
     def repair_parent_table_different_node_test(self):
         '''
         Uses repair_history_template to test that `parent_repair_history` on a
@@ -329,7 +324,6 @@ class TestRepairDataSystemTable(Tester):
         '''
         self.repair_history_template(repair_node=self.node1, check_node=self.node2, parent=False)
 
-    @attr('now')
     def repair_table_different_node_test(self):
         '''
         Uses repair_history_template to test that `repair_history` on a node is
