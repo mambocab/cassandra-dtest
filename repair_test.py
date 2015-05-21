@@ -1,8 +1,7 @@
 import time, re
 from collections import namedtuple
-from dtest import Tester, debug, DEBUG
+from dtest import Tester, debug
 from cassandra import ConsistencyLevel
-from cassandra.concurrent import execute_concurrent_with_args
 from cassandra.query import SimpleStatement
 from tools import no_vnodes, insert_c1c2, query_c1c2, since
 
