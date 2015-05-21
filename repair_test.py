@@ -245,7 +245,7 @@ class TestRepairDataSystemTable(Tester):
 
         Tester.setUp(self)
         self.cluster.populate(5).start(wait_for_binary_proto=True)
-        [self.node1, self.node2, _, _, _] = self.cluster.nodelist()
+        self.node1, self.node2 = self.cluster.nodelist()[:2]
 
         self.node1.stress(stress_options=['write', 'n=50000', '-schema', 'replication(factor=3)'])
 
