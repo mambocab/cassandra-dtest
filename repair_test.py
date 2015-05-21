@@ -248,6 +248,7 @@ class TestRepairDataSystemTable(Tester):
         self.node1, self.node2 = self.cluster.nodelist()[:2]
 
         self.node1.stress(stress_options=['write', 'n=50000', '-schema', 'replication(factor=3)'])
+        self.cluster.flush()
 
     def repair_table_contents(self, node, include_system_keyspaces=True):
         '''
