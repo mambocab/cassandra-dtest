@@ -1,8 +1,13 @@
 import time, re
-from dtest import Tester, debug
+from collections import namedtuple
+from dtest import Tester, debug, DEBUG
 from cassandra import ConsistencyLevel
+from cassandra.concurrent import execute_concurrent_with_args
 from cassandra.query import SimpleStatement
-from tools import no_vnodes, insert_c1c2, query_c1c2
+from tools import no_vnodes, insert_c1c2, query_c1c2, since
+
+from nose.plugins.attrib import attr
+
 
 class TestRepair(Tester):
 
@@ -216,3 +221,129 @@ class TestRepair(Tester):
         # check log for actual repair for non gcable data
         l = node2.grep_log("/([0-9.]+) and /([0-9.]+) have ([0-9]+) range\(s\) out of sync for cf2")
         assert len(l) > 0, "Non GC-able data should be repaired"
+
+
+RepairTableContents = namedtuple('RepairTableContents',
+                                 ['parent_repair_history', 'repair_history'])
+
+
+@since('2.2')
+class TestRepairDataSystemTable(Tester):
+    '''
+    @jira_ticket CASSANDRA-5839
+
+    Tests the `system_distributed.parent_repair_history` and
+    `system_distributed.repair_history` tables by writing thousands of records
+    to a cluster, then ensuring these tables are in valid states before and
+    after running repair.
+    '''
+    def setUp(self):
+        '''
+        Prepares a cluster for tests of the repair history tables by starting
+        a 5-node cluster, then inserting 50000 values with RF=3.
+        '''
+
+        Tester.setUp(self)
+        self.cluster.populate(5).start(wait_for_binary_proto=True)
+        [self.node1, self.node2, _, _, _] = self.cluster.nodelist()
+
+        self.node1.stress(stress_options=['write', 'n=50000', '-schema', 'replication(factor=3)'])
+
+    def repair_table_contents(self, node, include_system_keyspaces=True):
+        '''
+        @param node the node to connect to and query
+        @param include_system_keyspaces if truthy, return repair information about all keyspaces. If falsey, filter out keyspaces whose name contains 'system'
+
+        Return a `RepairTableContents` `namedtuple` containing the rows in
+        `node`'s `system_distributed.parent_repair_history` and
+        `system_distributed.repair_history` tables. If `include_system_keyspaces`,
+        include all results. If not `include_system_keyspaces`, filter out
+        repair information about system keyspaces, or at least keyspaces with
+        'system' in their names.
+        '''
+        session = self.patient_cql_connection(node)
+
+        parent_repair_history = session.execute('SELECT * FROM system_distributed.parent_repair_history;')
+        repair_history = session.execute('SELECT * FROM system_distributed.repair_history;')
+        if not include_system_keyspaces:
+            parent_repair_history = [row for row in parent_repair_history
+                                     if 'system' not in row.keyspace_name]
+            repair_history = [row for row in repair_history if
+                              'system' not in row.keyspace_name]
+        return RepairTableContents(parent_repair_history=parent_repair_history,
+                                   repair_history=repair_history)
+
+    def initial_empty_repair_tables_test(self):
+        debug('repair tables:')
+        debug(self.repair_table_contents(include_system_keyspaces=False))
+        repair_tables_dict = self.repair_table_contents(include_system_keyspaces=False)._asdict()
+        for table_name, table_contents in repair_tables_dict.items():
+            self.assertFalse(table_contents)
+
+    def repair_history_template(self, repair_node, check_node, parent):
+        '''
+        @param repair_node calls repair on this node
+        @param check_node checks the contents of the repair history tables on this node
+        @param parent whether to check the parent_repair_history or repair_history table
+
+        A parameterized test of `system_distributed.parent_repair_history`
+        and `system_distributed.parent_repair_history`. Tests them by:
+
+        - running repair on `repair_node` and
+        - getting the contents of the `parent_repair_history` and `repair_history` tables on `check_node`.
+
+        If `parent`, then this checks that there is only one entry in `parent_repair_history`.
+        If not `parent`, then this checks that there are a non-zero number of entries in `repair_history`.
+        '''
+        repair_node.repair()
+        (parent_repair_history,
+         repair_history) = self.repair_table_contents(node=check_node, include_system_keyspaces=False)
+
+        debug((parent_repair_history, repair_history))
+        debug(''.join(log[0] for log in check_node.grep_log('Repair command .* finished')))
+        debug(''.join(log[0] for log in check_node.grep_log('Repair.*\java')))
+
+        if DEBUG:
+            for i, node in enumerate(self.cluster.nodelist()):
+                (i_parent_repair_history,
+                 i_repair_history) = self.repair_table_contents(node=node, include_system_keyspaces=False)
+                debug('node{}: {}'.format(i + 1, (i_parent_repair_history, i_repair_history)))
+
+        if parent:
+            self.assertEqual(len(parent_repair_history), 1)
+        else:
+            self.assertTrue(len(repair_history))
+
+    @attr('now')
+    def repair_parent_table_same_node_test(self):
+        '''
+        Uses repair_history_template to test that `parent_repair_history` on a
+        node is populated correctly after running repair on that node.
+        '''
+        self.repair_history_template(repair_node=self.node1, check_node=self.node1, parent=True)
+
+    @attr('now')
+    def repair_table_same_node_test(self):
+        '''
+        Uses repair_history_template to test that `repair_history` on a node
+        is populated correctly after running repair on that node.
+        '''
+        self.repair_history_template(repair_node=self.node1, check_node=self.node1, parent=False)
+
+    @attr('now')
+    def repair_parent_table_different_node_test(self):
+        '''
+        Uses repair_history_template to test that `parent_repair_history` on a
+        node is populated correctly after running repair on a node with which
+        it shares data.
+        '''
+        self.repair_history_template(repair_node=self.node1, check_node=self.node2, parent=False)
+
+    @attr('now')
+    def repair_table_different_node_test(self):
+        '''
+        Uses repair_history_template to test that `repair_history` on a node is
+        populated correctly after running repair on a node with which it shares
+        data.
+        '''
+        self.repair_history_template(repair_node=self.node1, check_node=self.node2, parent=True)
