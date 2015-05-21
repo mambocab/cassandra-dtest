@@ -299,16 +299,6 @@ class TestRepairDataSystemTable(Tester):
         (parent_repair_history,
          repair_history) = self.repair_table_contents(node=check_node, include_system_keyspaces=False)
 
-        debug((parent_repair_history, repair_history))
-        debug(''.join(log[0] for log in check_node.grep_log('Repair command .* finished')))
-        debug(''.join(log[0] for log in check_node.grep_log('Repair.*\java')))
-
-        if DEBUG:
-            for i, node in enumerate(self.cluster.nodelist()):
-                (i_parent_repair_history,
-                 i_repair_history) = self.repair_table_contents(node=node, include_system_keyspaces=False)
-                debug('node{}: {}'.format(i + 1, (i_parent_repair_history, i_repair_history)))
-
         if parent:
             self.assertEqual(len(parent_repair_history), 1)
         else:
