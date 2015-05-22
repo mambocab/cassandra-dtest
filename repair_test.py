@@ -244,7 +244,7 @@ class TestRepairDataSystemTable(Tester):
         self.cluster.populate(5).start(wait_for_binary_proto=True)
         self.node1, self.node2 = self.cluster.nodelist()[:2]
 
-        self.node1.stress(stress_options=['write', 'n=50000', '-schema', 'replication(factor=3)'])
+        self.node1.stress(stress_options=['write', 'n=1000', '-schema', 'replication(factor=3)'])
         self.cluster.flush()
 
     def repair_table_contents(self, node, include_system_keyspaces=True):
@@ -261,8 +261,12 @@ class TestRepairDataSystemTable(Tester):
         '''
         session = self.patient_cql_connection(node)
 
-        parent_repair_history = session.execute('SELECT * FROM system_distributed.parent_repair_history;')
-        repair_history = session.execute('SELECT * FROM system_distributed.repair_history;')
+        def execute_with_quorum(stmt):
+            return session.execute(SimpleStatement(stmt, consistency_level=ConsistencyLevel.QUORUM))
+
+        parent_repair_history = execute_with_quorum('SELECT * FROM system_distributed.parent_repair_history;')
+        repair_history = execute_with_quorum('SELECT * FROM system_distributed.repair_history;')
+
         if not include_system_keyspaces:
             parent_repair_history = [row for row in parent_repair_history
                                      if 'system' not in row.keyspace_name]
@@ -273,10 +277,10 @@ class TestRepairDataSystemTable(Tester):
 
     def initial_empty_repair_tables_test(self):
         debug('repair tables:')
-        debug(self.repair_table_contents(include_system_keyspaces=False))
-        repair_tables_dict = self.repair_table_contents(include_system_keyspaces=False)._asdict()
+        debug(self.repair_table_contents(node=self.node1, include_system_keyspaces=False))
+        repair_tables_dict = self.repair_table_contents(node=self.node1, include_system_keyspaces=False)._asdict()
         for table_name, table_contents in repair_tables_dict.items():
-            self.assertFalse(table_contents)
+            self.assertFalse(table_contents, '{} is non-empty'.format(table_name))
 
     def repair_history_template(self, repair_node, check_node, parent):
         '''
