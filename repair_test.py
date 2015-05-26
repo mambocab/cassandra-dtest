@@ -237,14 +237,16 @@ class TestRepairDataSystemTable(Tester):
     def setUp(self):
         '''
         Prepares a cluster for tests of the repair history tables by starting
-        a 5-node cluster, then inserting 50000 values with RF=3.
+        a 5-node cluster, then inserting 5000 values with RF=3.
         '''
 
         Tester.setUp(self)
         self.cluster.populate(5).start(wait_for_binary_proto=True)
-        self.node1, self.node2 = self.cluster.nodelist()[:2]
+        [self.node1, _, _, _, _] = self.cluster.nodelist()
+        self.session = self.patient_cql_connection(self.node1)
 
-        self.node1.stress(stress_options=['write', 'n=1000', '-schema', 'replication(factor=3)'])
+        self.node1.stress(stress_options=['write', 'n=5000', 'cl=ONE', '-schema', 'replication(factor=3)'])
+
         self.cluster.flush()
 
     def repair_table_contents(self, node, include_system_keyspaces=True):
@@ -261,11 +263,11 @@ class TestRepairDataSystemTable(Tester):
         '''
         session = self.patient_cql_connection(node)
 
-        def execute_with_quorum(stmt):
-            return session.execute(SimpleStatement(stmt, consistency_level=ConsistencyLevel.QUORUM))
+        def execute_with_all(stmt):
+            return session.execute(SimpleStatement(stmt, consistency_level=ConsistencyLevel.ALL))
 
-        parent_repair_history = execute_with_quorum('SELECT * FROM system_distributed.parent_repair_history;')
-        repair_history = execute_with_quorum('SELECT * FROM system_distributed.repair_history;')
+        parent_repair_history = execute_with_all('SELECT * FROM system_distributed.parent_repair_history;')
+        repair_history = execute_with_all('SELECT * FROM system_distributed.repair_history;')
 
         if not include_system_keyspaces:
             parent_repair_history = [row for row in parent_repair_history
@@ -282,56 +284,37 @@ class TestRepairDataSystemTable(Tester):
         for table_name, table_contents in repair_tables_dict.items():
             self.assertFalse(table_contents, '{} is non-empty'.format(table_name))
 
-    def repair_history_template(self, repair_node, check_node, parent):
+    def repair_history_template(self, node, parent):
         '''
-        @param repair_node calls repair on this node
-        @param check_node checks the contents of the repair history tables on this node
+        @param repair_node calls repair and checks the contents of the repair history tables on this node
         @param parent whether to check the parent_repair_history or repair_history table
 
         A parameterized test of `system_distributed.parent_repair_history`
         and `system_distributed.parent_repair_history`. Tests them by:
 
-        - running repair on `repair_node` and
-        - getting the contents of the `parent_repair_history` and `repair_history` tables on `check_node`.
+        - running repair on `node` and
+        - getting the contents of the `parent_repair_history` and `repair_history` tables on `node`.
 
-        If `parent`, then this checks that there is only one entry in `parent_repair_history`.
+        If `parent`, then this checks that there are a non-zero number of entries in `parent_repair_history`.
         If not `parent`, then this checks that there are a non-zero number of entries in `repair_history`.
         '''
-        repair_node.repair()
+        self.ignore_log_patterns = ['may not update a reader that has been obsoleted']
+        node.repair()
         (parent_repair_history,
-         repair_history) = self.repair_table_contents(node=check_node, include_system_keyspaces=False)
+         repair_history) = self.repair_table_contents(node=node, include_system_keyspaces=False)
 
-        if parent:
-            self.assertEqual(len(parent_repair_history), 1)
-        else:
-            self.assertTrue(len(repair_history))
+        self.assertTrue(len(parent_repair_history if parent else repair_history))
 
-    def repair_parent_table_same_node_test(self):
+    def repair_parent_table_test(self):
         '''
         Uses repair_history_template to test that `parent_repair_history` on a
-        node is populated correctly after running repair on that node.
+        node is populated correctly after running repair.
         '''
-        self.repair_history_template(repair_node=self.node1, check_node=self.node1, parent=True)
+        self.repair_history_template(node=self.node1, parent=True)
 
-    def repair_table_same_node_test(self):
+    def repair_table_test(self):
         '''
         Uses repair_history_template to test that `repair_history` on a node
-        is populated correctly after running repair on that node.
+        is populated correctly after running repair.
         '''
-        self.repair_history_template(repair_node=self.node1, check_node=self.node1, parent=False)
-
-    def repair_parent_table_different_node_test(self):
-        '''
-        Uses repair_history_template to test that `parent_repair_history` on a
-        node is populated correctly after running repair on a node with which
-        it shares data.
-        '''
-        self.repair_history_template(repair_node=self.node1, check_node=self.node2, parent=False)
-
-    def repair_table_different_node_test(self):
-        '''
-        Uses repair_history_template to test that `repair_history` on a node is
-        populated correctly after running repair on a node with which it shares
-        data.
-        '''
-        self.repair_history_template(repair_node=self.node1, check_node=self.node2, parent=True)
+        self.repair_history_template(node=self.node1, parent=False)
