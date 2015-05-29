@@ -4,6 +4,7 @@ from tools import require, debug
 from random import random, randint
 from cassandra.concurrent import execute_concurrent_with_args
 from jmxutils import make_mbean, JolokiaAgent, remove_perf_disable_shared_mem
+import time
 
 
 # @require(8099)
@@ -33,10 +34,13 @@ class TestNewRowFormat(Tester):
     """
 
     def setUp(self):
+        debug("ok, let's go")
         Tester.setUp(self)
         self.cluster.populate(1)
         self.node1 = self.cluster.nodelist()[0]
+        debug('disabling shared mem')
         remove_perf_disable_shared_mem(self.node1)
+        debug('starting cluster')
         self.cluster.start(wait_for_binary_proto=True)
 
     def dense_sstables_smaller_test(self):
@@ -54,13 +58,21 @@ class TestNewRowFormat(Tester):
         """
         # old_format_version = '2.2.0'
 
-        ks, table = 'ks1', 'tab1'
+        def disk_used_for_install(ks, table, install_dir=None):
+            if install_dir is not None:
+                self.upgrade_to_version(install_dir=install_dir)
+            debug('writing graphlike data')
+            self.write_graphlike_data(ks, table, sparse=False)
+            debug('getting disk used')
+            disk_used = sstables_size(self.node1, ks, table)
+            debug(disk_used)
+            # self.patient_exclusive_cql_connection(self.node1).execute('DROP KEYSPACE ' + ks)
+            return disk_used
 
-        self.write_graphlike_data(ks, table, sparse=True)
-        session = self.patient_exclusive_cql_connection(self.node1)
+        disk_used_for_install('ks1', 'tab1')
 
-        disk_used = sstables_size(self.node1, ks, table)
-        debug(disk_used)
+        # self.assertGreater(disk_used_for_install('ks1', 'tab1'),
+        #                    disk_used_for_install('ks2', 'tab2', '/home/mambocab/cstar_src/cassandra-patches/pcmanus-8099'))
 
     def sparse_sstables_smaller_test(self):
         """
@@ -76,6 +88,19 @@ class TestNewRowFormat(Tester):
 
         The total on-disk size of the data on the 3.0 cluster should be smaller.
         """
+        def disk_used_for_install(ks, table, install_dir=None):
+            if install_dir is not None:
+                self.upgrade_to_version(install_dir=install_dir)
+            debug('writing graphlike data')
+            self.write_graphlike_data(ks, table, sparse=True)
+            debug('getting disk used')
+            disk_used = sstables_size(self.node1, ks, table)
+            debug(disk_used)
+            # self.patient_exclusive_cql_connection(self.node1).execute('DROP KEYSPACE ' + ks)
+            return disk_used
+
+        disk_used_for_install('ks1', 'tab1')
+
 
     def compaction_speed_test(self):
         """
@@ -99,12 +124,19 @@ class TestNewRowFormat(Tester):
 
         This test should be run on spinning storage media.
         """
+        debug('writing graphlike data')
+        self.write_graphlike_data('ks', 'tab', sparse=True)
 
-    def upgrade_to_version(self, tag, nodes=None):
+        start = time.time()
+        self.cluster.compact()
+        debug(time.time() - start)
+
+
+    def upgrade_to_version(self, version=None, install_dir=None, nodes=None):
         """
         copied from upgrade_supercolumns_test
         """
-        debug('Upgrading to ' + tag)
+        debug('Upgrading to ' + version if version is not None else install_dir)
         if nodes is None:
             nodes = self.cluster.nodelist()
 
@@ -116,9 +148,10 @@ class TestNewRowFormat(Tester):
 
         # Update Cassandra Directory
         for node in nodes:
-            node.set_install_dir(version=tag)
+            node.set_install_dir(version=version, install_dir=install_dir)
             debug("Set new cassandra dir for %s: %s" % (node.name, node.get_install_dir()))
-        self.cluster.set_install_dir(version=tag)
+        self.cluster.set_install_dir(version=version, install_dir=install_dir)
+        tag = self.cluster.get_install_dir()
 
         # Restart nodes on new version
         for node in nodes:
@@ -132,25 +165,35 @@ class TestNewRowFormat(Tester):
         """
         Ideally, we can do this with cassandra-stress. Until then, we'll do it manually.
         """
+        debug('getting session')
         session = self.patient_exclusive_cql_connection(self.cluster.nodelist()[0])
 
         num_columns = 1000
         column_names = list(islice(unique_names(), num_columns))
 
+        debug('creating ks')
         self.create_ks(session, ks_name, 1)
+        debug('creating table')
         self.create_cf(session, table_name, key_type='uuid',
                        columns={k: 'int' for k in column_names})
 
         null_prob = .3 if sparse else .7
 
+        debug('building data...')
         data = [[uuid4()] + [random_int(null_prob) for x in range(num_columns)]
-                for y in range(10000)]
+                for y in range(5000)]
+
         insert_cql = 'INSERT INTO ' + table_name
         insert_cql += ' (' + ', '.join(['key'] + column_names) + ' ) '
         insert_cql += ' VALUES '
         insert_cql += ' (' + ', '.join(['?' for x in range(num_columns + 1)]) + ')'
+        debug('preparing...')
+        prepared = session.prepare(insert_cql)
 
-        execute_concurrent_with_args(session, session.prepare(insert_cql), data)
+        for i, d in enumerate(data):
+            session.execute(prepared, d)
+
+        self.cluster.flush()
 
 
 from itertools import product, tee, islice
@@ -173,7 +216,7 @@ def random_int(null_prob):
     if null_prob < random():
         return None
     else:
-        return randint(-2 ** 30, 2 ** 30)
+        return randint(-(2 ** 30), 2 ** 30)
 
 
 def sstables_size(node, keyspace, table):
