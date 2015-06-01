@@ -49,6 +49,43 @@ class TestNewRowFormat(Tester):
         self.tearDown()
         self.setUp(version=version, install_dir=install_dir)
 
+    def write_graphlike_data(self, ks_name, table_name, sparse, n=10000, num_columns=1000):
+        """
+        Writes 10000 values to ks_name.table_name. If sparse, 70% of the
+        values written will be null; if not sparse, 30% of the values will be
+        null.
+
+        Ideally, in the future, we can do this with cassandra-stress, which
+        will give us easy flexibility for datatypes, etc.
+        """
+        session = self.patient_exclusive_cql_connection(self.cluster.nodelist()[0])
+
+        column_names = list(islice(unique_names(), num_columns))
+
+        self.create_ks(session, ks_name, 1)
+        self.create_cf(session, table_name, key_type='uuid',
+                       columns={k: 'int' for k in column_names})
+
+        null_prob = .3 if sparse else .7
+
+        data = ([uuid4()] + [random_int_or_null(null_prob) for x in range(num_columns)]
+                for y in range(n))
+
+        insert_cql = 'INSERT INTO ' + table_name
+        insert_cql += ' (' + ', '.join(['key'] + column_names) + ' ) '
+        insert_cql += ' VALUES '
+        insert_cql += ' (' + ', '.join(['?' for x in range(num_columns + 1)]) + ')'
+        debug('preparing...')
+        prepared = session.prepare(insert_cql)
+
+        for i, d in enumerate(data):
+            session.execute(prepared, d)
+
+        self.cluster.flush()
+
+
+class SSTableSizeTest(TestNewRowFormat):
+
     def dense_sstables_smaller_test(self):
         """
         Test that SSTables are smaller in the 3.0 representation than in the old by:
@@ -105,6 +142,8 @@ class TestNewRowFormat(Tester):
         debug('new/old = {}'.format(new_size / old_size))
         self.assertGreater(old_size, new_size)
 
+
+class CompactionSpeedTest(TestNewRowFormat):
     def compaction_speed_test(self):
         """
         @test_assumptions spinning storage media
@@ -144,6 +183,8 @@ class TestNewRowFormat(Tester):
         debug('new/old = {}'.format(new_time / old_time))
         self.assertGreater(new_time, old_time)
 
+
+class SchemaChangeTest(TestNewRowFormat):
     def schema_change_speed_test(self):
         def schema_change_time(ks, table, install_dir=None):
             if install_dir is not None:
@@ -167,40 +208,18 @@ class TestNewRowFormat(Tester):
         debug('new/old = {}'.format(new_time / old_time))
         self.assertGreater(old_time, new_time)
 
-    def write_graphlike_data(self, ks_name, table_name, sparse):
-        """
-        Writes 10000 values to ks_name.table_name. If sparse, 70% of the
-        values written will be null; if not sparse, 30% of the values will be
-        null.
+    def schema_change_correctness_test(self):
+        ks, table = 'ks', 'tab'
+        self.set_new_cluster(install_dir='/home/mambocab/cstar_src/cassandra-patches/pcmanus-8099')
+        self.write_graphlike_data(ks, table, sparse=False, n=1000)
 
-        Ideally, in the future, we can do this with cassandra-stress, which
-        will give us easy flexibility for datatypes, etc.
-        """
         session = self.patient_exclusive_cql_connection(self.cluster.nodelist()[0])
 
-        num_columns = 1000
-        column_names = list(islice(unique_names(), num_columns))
+        orig_values = session.execute('SELECT * FROM {}.{}'.format(ks, table))
 
-        self.create_ks(session, ks_name, 1)
-        self.create_cf(session, table_name, key_type='uuid',
-                       columns={k: 'int' for k in column_names})
+        session.execute('ALTER TABLE {}.{} DROP aaaaa'.format(ks, table))
 
-        null_prob = .3 if sparse else .7
-
-        data = ([uuid4()] + [random_int_or_null(null_prob) for x in range(num_columns)]
-                for y in range(10000))
-
-        insert_cql = 'INSERT INTO ' + table_name
-        insert_cql += ' (' + ', '.join(['key'] + column_names) + ' ) '
-        insert_cql += ' VALUES '
-        insert_cql += ' (' + ', '.join(['?' for x in range(num_columns + 1)]) + ')'
-        debug('preparing...')
-        prepared = session.prepare(insert_cql)
-
-        for i, d in enumerate(data):
-            session.execute(prepared, d)
-
-        self.cluster.flush()
+        self.assertEqual(orig_values, session.execute('SELECT * FROM {}.{}'.format(ks, table)))
 
 
 def unique_names(min_length=5):
