@@ -63,7 +63,7 @@ class TestNewRowFormat(Tester):
         The total on-disk size of the data on the 3.0 cluster should be smaller.
         """
 
-        def disk_used_for_install(ks, table, install_dir=None):
+        def disk_used_for_install(ks='ks', table='tab', install_dir=None):
             if install_dir is not None:
                 self.set_new_cluster(install_dir=install_dir)
             self.write_graphlike_data(ks, table, sparse=False)
@@ -71,9 +71,8 @@ class TestNewRowFormat(Tester):
             debug('disk used by {}: {}'.format(self.cluster.version(), disk_used))
             return disk_used
 
-        old_size = disk_used_for_install('ks1', 'tab1')
-        new_size = disk_used_for_install('ks2', 'tab2',
-                                         install_dir='/home/mambocab/cstar_src/cassandra-patches/pcmanus-8099')
+        old_size = disk_used_for_install()
+        new_size = disk_used_for_install(install_dir='/home/mambocab/cstar_src/cassandra-patches/pcmanus-8099')
 
         debug('new/old = {}'.format(new_size / old_size))
         self.assertGreater(old_size, new_size)
@@ -92,7 +91,7 @@ class TestNewRowFormat(Tester):
 
         The total on-disk size of the data on the 3.0 cluster should be smaller.
         """
-        def disk_used_for_install(ks, table, install_dir=None):
+        def disk_used_for_install(ks='ks', table='tab', install_dir=None):
             if install_dir is not None:
                 self.set_new_cluster(install_dir=install_dir)
             self.write_graphlike_data(ks, table, sparse=True)
@@ -100,9 +99,8 @@ class TestNewRowFormat(Tester):
             debug('disk used by {}: {}'.format(self.cluster.version(), disk_used))
             return disk_used
 
-        old_size = disk_used_for_install('ks1', 'tab1')
-        new_size = disk_used_for_install('ks2', 'tab2',
-                                         install_dir='/home/mambocab/cstar_src/cassandra-patches/pcmanus-8099')
+        old_size = disk_used_for_install()
+        new_size = disk_used_for_install(install_dir='/home/mambocab/cstar_src/cassandra-patches/pcmanus-8099')
 
         debug('new/old = {}'.format(new_size / old_size))
         self.assertGreater(old_size, new_size)
@@ -129,7 +127,7 @@ class TestNewRowFormat(Tester):
 
         This test should be run on spinning storage media.
         """
-        def compaction_time(ks, table, install_dir=None):
+        def compaction_time(ks='ks', table='tab', install_dir=None):
             if install_dir is not None:
                 self.set_new_cluster(install_dir=install_dir)
             self.write_graphlike_data(ks, table, sparse=False)
@@ -140,9 +138,8 @@ class TestNewRowFormat(Tester):
             debug(result)
             return result
 
-        old_time = compaction_time('ks1', 'tab1')
-        new_time = compaction_time('ks2', 'tab2',
-                                   install_dir='/home/mambocab/cstar_src/cassandra-patches/pcmanus-8099')
+        old_time = compaction_time()
+        new_time = compaction_time(install_dir='/home/mambocab/cstar_src/cassandra-patches/pcmanus-8099')
 
         debug('new/old = {}'.format(new_time / old_time))
         self.assertGreater(new_time, old_time)
