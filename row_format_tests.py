@@ -11,7 +11,6 @@ from jmxutils import JolokiaAgent, make_mbean, remove_perf_disable_shared_mem
 from tools import debug
 
 
-# @require(8099)
 class TestNewRowFormat(Tester):
     """
     @jira_ticket 8099
@@ -37,15 +36,18 @@ class TestNewRowFormat(Tester):
     (Honestly, I don't know what schema changes look like under the hood now.)
     """
 
-    def setUp(self):
-        debug("ok, let's go")
+    def setUp(self, version=None, install_dir=None):
         Tester.setUp(self)
+        if version is not None or install_dir is not None:
+            self.cluster.set_install_dir(version=version, install_dir=install_dir)
         self.cluster.populate(1)
         self.node1 = self.cluster.nodelist()[0]
-        debug('disabling shared mem')
         remove_perf_disable_shared_mem(self.node1)
-        debug('starting cluster')
         self.cluster.start(wait_for_binary_proto=True)
+
+    def set_new_cluster(self, version=None, install_dir=None):
+        self.tearDown()
+        self.setUp(version=version, install_dir=install_dir)
 
     def dense_sstables_smaller_test(self):
         """
@@ -60,23 +62,21 @@ class TestNewRowFormat(Tester):
 
         The total on-disk size of the data on the 3.0 cluster should be smaller.
         """
-        # old_format_version = '2.2.0'
 
         def disk_used_for_install(ks, table, install_dir=None):
             if install_dir is not None:
-                self.upgrade_to_version(install_dir=install_dir)
-            debug('writing graphlike data')
+                self.set_new_cluster(install_dir=install_dir)
             self.write_graphlike_data(ks, table, sparse=False)
-            debug('getting disk used')
             disk_used = sstables_size(self.node1, ks, table)
-            debug(disk_used)
-            # self.patient_exclusive_cql_connection(self.node1).execute('DROP KEYSPACE ' + ks)
+            debug('disk used by {}: {}'.format(self.cluster.version(), disk_used))
             return disk_used
 
-        disk_used_for_install('ks1', 'tab1')
+        old_size = disk_used_for_install('ks1', 'tab1')
+        new_size = disk_used_for_install('ks2', 'tab2',
+                                         install_dir='/home/mambocab/cstar_src/cassandra-patches/pcmanus-8099')
 
-        # self.assertGreater(disk_used_for_install('ks1', 'tab1'),
-        #                    disk_used_for_install('ks2', 'tab2', '/home/mambocab/cstar_src/cassandra-patches/pcmanus-8099'))
+        debug('new/old = {}'.format(new_size / old_size))
+        self.assertGreater(old_size, new_size)
 
     def sparse_sstables_smaller_test(self):
         """
@@ -94,17 +94,18 @@ class TestNewRowFormat(Tester):
         """
         def disk_used_for_install(ks, table, install_dir=None):
             if install_dir is not None:
-                self.upgrade_to_version(install_dir=install_dir)
-            debug('writing graphlike data')
+                self.set_new_cluster(install_dir=install_dir)
             self.write_graphlike_data(ks, table, sparse=True)
-            debug('getting disk used')
             disk_used = sstables_size(self.node1, ks, table)
-            debug(disk_used)
-            # self.patient_exclusive_cql_connection(self.node1).execute('DROP KEYSPACE ' + ks)
+            debug('disk used by {}: {}'.format(self.cluster.version(), disk_used))
             return disk_used
 
-        disk_used_for_install('ks1', 'tab1')
+        old_size = disk_used_for_install('ks1', 'tab1')
+        new_size = disk_used_for_install('ks2', 'tab2',
+                                         install_dir='/home/mambocab/cstar_src/cassandra-patches/pcmanus-8099')
 
+        debug('new/old = {}'.format(new_size / old_size))
+        self.assertGreater(old_size, new_size)
 
     def compaction_speed_test(self):
         """
@@ -128,64 +129,69 @@ class TestNewRowFormat(Tester):
 
         This test should be run on spinning storage media.
         """
-        debug('writing graphlike data')
-        self.write_graphlike_data('ks', 'tab', sparse=True)
+        def compaction_time(ks, table, install_dir=None):
+            if install_dir is not None:
+                self.set_new_cluster(install_dir=install_dir)
+            self.write_graphlike_data(ks, table, sparse=False)
 
-        start = time.time()
-        self.cluster.compact()
-        debug(time.time() - start)
+            start = time.time()
+            self.cluster.compact()
+            result = time.time() - start
+            debug(result)
+            return result
 
+        old_time = compaction_time('ks1', 'tab1')
+        new_time = compaction_time('ks2', 'tab2',
+                                   install_dir='/home/mambocab/cstar_src/cassandra-patches/pcmanus-8099')
 
-    def upgrade_to_version(self, version=None, install_dir=None, nodes=None):
-        """
-        copied from upgrade_supercolumns_test
-        """
-        debug('Upgrading to ' + version if version is not None else install_dir)
-        if nodes is None:
-            nodes = self.cluster.nodelist()
+        debug('new/old = {}'.format(new_time / old_time))
+        self.assertGreater(new_time, old_time)
 
-        for node in nodes:
-            debug('Shutting down node: ' + node.name)
-            node.drain()
-            node.watch_log_for("DRAINED")
-            node.stop(wait_other_notice=False)
+    def schema_change_speed_test(self):
+        def schema_change_time(ks, table, install_dir=None):
+            if install_dir is not None:
+                self.set_new_cluster(install_dir=install_dir)
+            self.write_graphlike_data(ks, table, sparse=False)
 
-        # Update Cassandra Directory
-        for node in nodes:
-            node.set_install_dir(version=version, install_dir=install_dir)
-            debug("Set new cassandra dir for %s: %s" % (node.name, node.get_install_dir()))
-        self.cluster.set_install_dir(version=version, install_dir=install_dir)
-        tag = self.cluster.get_install_dir()
+            session = self.patient_exclusive_cql_connection(self.cluster.nodelist()[0])
 
-        # Restart nodes on new version
-        for node in nodes:
-            debug('Starting %s on new version (%s)' % (node.name, tag))
-            # Setup log4j / logback again (necessary moving from 2.0 -> 2.1):
-            node.set_log_level("INFO")
-            node.start(wait_other_notice=True, wait_for_binary_proto=True)
-            # node.nodetool('upgradesstables -a')  # not necessary; we're not reading the old data again
+            start = time.time()
+
+            session.execute('ALTER TABLE {}.{} DROP aaaaa'.format(ks, table))
+
+            result = time.time() - start
+            debug(result)
+            return result
+
+        old_time = schema_change_time('ks1', 'tab1')
+        new_time = schema_change_time('ks2', 'tab2',
+                                      install_dir='/home/mambocab/cstar_src/cassandra-patches/pcmanus-8099')
+
+        debug('new/old = {}'.format(new_time / old_time))
+        self.assertGreater(old_time, new_time)
 
     def write_graphlike_data(self, ks_name, table_name, sparse):
         """
-        Ideally, we can do this with cassandra-stress. Until then, we'll do it manually.
+        Writes 10000 values to ks_name.table_name. If sparse, 70% of the
+        values written will be null; if not sparse, 30% of the values will be
+        null.
+
+        Ideally, in the future, we can do this with cassandra-stress, which
+        will give us easy flexibility for datatypes, etc.
         """
-        debug('getting session')
         session = self.patient_exclusive_cql_connection(self.cluster.nodelist()[0])
 
         num_columns = 1000
         column_names = list(islice(unique_names(), num_columns))
 
-        debug('creating ks')
         self.create_ks(session, ks_name, 1)
-        debug('creating table')
         self.create_cf(session, table_name, key_type='uuid',
                        columns={k: 'int' for k in column_names})
 
         null_prob = .3 if sparse else .7
 
-        debug('building data...')
-        data = [[uuid4()] + [random_int(null_prob) for x in range(num_columns)]
-                for y in range(5000)]
+        data = ([uuid4()] + [random_int_or_null(null_prob) for x in range(num_columns)]
+                for y in range(10000))
 
         insert_cql = 'INSERT INTO ' + table_name
         insert_cql += ' (' + ', '.join(['key'] + column_names) + ' ) '
@@ -200,11 +206,14 @@ class TestNewRowFormat(Tester):
         self.cluster.flush()
 
 
-from itertools import product, tee, islice
-from string import ascii_lowercase as letters
-
-
 def unique_names(min_length=5):
+    """
+    Infinitely yields a sequence of strings of the form
+
+    a, b, c... aa, ab, ac... ba, bb, bc... aaa, aab, aac...
+
+    starting with the first string of length `min_length`.
+    """
     generation = ()
     while True:
         if not generation:
@@ -216,7 +225,7 @@ def unique_names(min_length=5):
                 yield g
 
 
-def random_int(null_prob):
+def random_int_or_null(null_prob):
     if null_prob < random():
         return None
     else:
@@ -224,10 +233,10 @@ def random_int(null_prob):
 
 
 def sstables_size(node, keyspace, table):
-    return columnfamily_metric(node, keyspace, table, 'LiveDiskSpaceUsed')
+    return columnfamily_count_metric(node, keyspace, table, 'LiveDiskSpaceUsed')
 
 
-def columnfamily_metric(node, keyspace, table, name):
+def columnfamily_count_metric(node, keyspace, table, name):
     with JolokiaAgent(node) as jmx:
         mbean = make_mbean('metrics', type='ColumnFamily',
                            name=name, keyspace=keyspace, scope=table)
