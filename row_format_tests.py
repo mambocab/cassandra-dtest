@@ -32,8 +32,10 @@ class TestNewRowFormat(Tester):
     to be added -- in particular, some control over the likelihood that a
     given column will be written, or the sparseness of rows.
 
-    @note We don't know how the new row format affects schema changes.
-    (Honestly, I don't know what schema changes look like under the hood now.)
+    The change to the row format could break schema changes in all kinds of
+    ways. However, we don't know of any particular failures to look out for.
+    Since we can't do much better than the existing test suite, schema change
+    correctness tests will be handled by the fuzz-testing harness.
     """
 
     def setUp(self, version=None, install_dir=None):
