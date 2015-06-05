@@ -102,16 +102,16 @@ class SSTableSizeTest(TestNewRowFormat):
         The total on-disk size of the data on the 3.0 cluster should be smaller.
         """
 
-        def disk_used_for_install(ks='ks', table='tab', install_dir=None):
-            if install_dir is not None:
-                self.set_new_cluster(install_dir=install_dir)
+        def disk_used_for_install(ks='ks', table='tab', install_dir=None, version=None):
+            if install_dir is not None or version is not None:
+                self.set_new_cluster(install_dir=install_dir, version=version)
             self.write_graphlike_data(ks, table, sparse=False)
             disk_used = sstables_size(self.node1, ks, table)
             debug('disk used by {}: {}'.format(self.cluster.version(), disk_used))
             return disk_used
 
         old_size = disk_used_for_install()
-        new_size = disk_used_for_install(install_dir='/home/mambocab/cstar_src/cassandra-patches/pcmanus-8099')
+        new_size = disk_used_for_install(version='git:cassandra-2.2')
 
         debug('new/old = {}'.format(new_size / old_size))
         self.assertGreater(old_size, new_size)
@@ -130,16 +130,16 @@ class SSTableSizeTest(TestNewRowFormat):
 
         The total on-disk size of the data on the 3.0 cluster should be smaller.
         """
-        def disk_used_for_install(ks='ks', table='tab', install_dir=None):
-            if install_dir is not None:
-                self.set_new_cluster(install_dir=install_dir)
+        def disk_used_for_install(ks='ks', table='tab', install_dir=None, version=None):
+            if install_dir is not None or version is not None:
+                self.set_new_cluster(install_dir=install_dir, version=version)
             self.write_graphlike_data(ks, table, sparse=True)
             disk_used = sstables_size(self.node1, ks, table)
             debug('disk used by {}: {}'.format(self.cluster.version(), disk_used))
             return disk_used
 
         old_size = disk_used_for_install()
-        new_size = disk_used_for_install(install_dir='/home/mambocab/cstar_src/cassandra-patches/pcmanus-8099')
+        new_size = disk_used_for_install(version='git:cassandra-2.2')
 
         debug('new/old = {}'.format(new_size / old_size))
         self.assertGreater(old_size, new_size)
@@ -168,9 +168,9 @@ class CompactionSpeedTest(TestNewRowFormat):
 
         This test should be run on spinning storage media.
         """
-        def compaction_time(ks='ks', table='tab', install_dir=None):
-            if install_dir is not None:
-                self.set_new_cluster(install_dir=install_dir)
+        def compaction_time(ks='ks', table='tab', install_dir=None, version=None):
+            if install_dir is not None or version is not None:
+                self.set_new_cluster(install_dir=install_dir, version=version)
             self.write_graphlike_data(ks, table, sparse=False)
 
             start = time.time()
@@ -188,9 +188,9 @@ class CompactionSpeedTest(TestNewRowFormat):
 
 class SchemaChangeTest(TestNewRowFormat):
     def schema_change_speed_test(self):
-        def schema_change_time(ks, table, install_dir=None):
-            if install_dir is not None:
-                self.set_new_cluster(install_dir=install_dir)
+        def schema_change_time(ks, table, install_dir=None, version=None):
+            if install_dir is not None or version is not None:
+                self.set_new_cluster(install_dir=install_dir, version=version)
             self.write_graphlike_data(ks, table, sparse=False)
 
             session = self.patient_exclusive_cql_connection(self.cluster.nodelist()[0])
