@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from dtest import Tester
 from jmxutils import JolokiaAgent, make_mbean, remove_perf_disable_shared_mem
-from tools import debug
+from tools import debug, since
 
 
 class TestNewRowFormat(Tester):
@@ -86,6 +86,7 @@ class TestNewRowFormat(Tester):
         self.cluster.flush()
 
 
+@since('3.0')
 class SSTableSizeTest(TestNewRowFormat):
 
     def dense_sstables_smaller_test(self):
@@ -110,8 +111,8 @@ class SSTableSizeTest(TestNewRowFormat):
             debug('disk used by {}: {}'.format(self.cluster.version(), disk_used))
             return disk_used
 
-        old_size = disk_used_for_install()
-        new_size = disk_used_for_install(version='git:cassandra-2.2')
+        new_size = disk_used_for_install()
+        old_size = disk_used_for_install(version='git:cassandra-2.2')
 
         debug('new/old = {}'.format(new_size / old_size))
         self.assertGreater(old_size, new_size)
@@ -138,13 +139,14 @@ class SSTableSizeTest(TestNewRowFormat):
             debug('disk used by {}: {}'.format(self.cluster.version(), disk_used))
             return disk_used
 
-        old_size = disk_used_for_install()
-        new_size = disk_used_for_install(version='git:cassandra-2.2')
+        new_size = disk_used_for_install()
+        old_size = disk_used_for_install(version='git:cassandra-2.2')
 
         debug('new/old = {}'.format(new_size / old_size))
         self.assertGreater(old_size, new_size)
 
 
+@since('3.0')
 class CompactionSpeedTest(TestNewRowFormat):
     def compaction_speed_test(self):
         """
@@ -179,13 +181,14 @@ class CompactionSpeedTest(TestNewRowFormat):
             debug(result)
             return result
 
-        old_time = compaction_time()
-        new_time = compaction_time(install_dir='/home/mambocab/cstar_src/cassandra-patches/pcmanus-8099')
+        new_time = compaction_time()
+        old_time = compaction_time(version='git:cassandra-2.2')
 
         debug('new/old = {}'.format(new_time / old_time))
         self.assertGreater(new_time, old_time)
 
 
+@since('3.0')
 class SchemaChangeTest(TestNewRowFormat):
     def schema_change_speed_test(self):
         def schema_change_time(ks, table, install_dir=None, version=None):
@@ -203,25 +206,12 @@ class SchemaChangeTest(TestNewRowFormat):
             debug(result)
             return result
 
-        old_time = schema_change_time('ks1', 'tab1')
-        new_time = schema_change_time('ks2', 'tab2',
-                                      install_dir='/home/mambocab/cstar_src/cassandra-patches/pcmanus-8099')
+        new_time = schema_change_time('ks1', 'tab1')
+        old_time = schema_change_time('ks2', 'tab2',
+                                      version='git:cassandra-2.2')
 
         debug('new/old = {}'.format(new_time / old_time))
-        self.assertGreater(old_time, new_time)
-
-    def schema_change_correctness_test(self):
-        ks, table = 'ks', 'tab'
-        self.set_new_cluster(install_dir='/home/mambocab/cstar_src/cassandra-patches/pcmanus-8099')
-        self.write_graphlike_data(ks, table, sparse=False, n=1000)
-
-        session = self.patient_exclusive_cql_connection(self.cluster.nodelist()[0])
-
-        orig_values = session.execute('SELECT * FROM {}.{}'.format(ks, table))
-
-        session.execute('ALTER TABLE {}.{} DROP aaaaa'.format(ks, table))
-
-        self.assertEqual(orig_values, session.execute('SELECT * FROM {}.{}'.format(ks, table)))
+        self.assertGreater(new_time, old_time)
 
 
 def unique_names(min_length=5):
