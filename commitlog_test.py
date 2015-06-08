@@ -66,11 +66,11 @@ class TestCommitLog(Tester):
         path = self._get_commitlog_path()
         return [os.path.join(path, p) for p in os.listdir(path)]
 
-    def _get_commitlog_size(self):
+    def _get_commitlog_size(self, size_spec='-m'):
         """ Returns the commitlog directory size in MB """
 
         path = self._get_commitlog_path()
-        cmd_args = ['du', '-m', path]
+        cmd_args = ['du', size_spec, path]
         p = subprocess.Popen(cmd_args, stdout=subprocess.PIPE,
                              stderr=subprocess.PIPE)
         stdout, stderr = p.communicate()
@@ -266,3 +266,21 @@ class TestCommitLog(Tester):
             "SELECT * FROM test where key=2;",
             [2, 2]
         )
+
+    def batch_sync_test(self):
+        self.cluster.set_configuration_options(batch_commitlog=True)
+        self.cluster.start(wait_for_binary_proto=True)
+        cursor = self.patient_cql_connection(self.node1)
+
+        init_size = self._get_commitlog_size('-b')
+
+        cursor.execute("CREATE KEYSPACE ks WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 1} "
+                       "AND DURABLE_WRITES = true")
+        cursor.execute('CREATE TABLE ks.tab (key int PRIMARY KEY, a int)')
+
+        prepared = cursor.prepare('INSERT INTO ks.tab (key, a) VALUES (?, ?)')
+        for t in [(x, x+1) for x in range(10000)]:
+            cursor.execute(prepared, t)
+
+        self.assertLess(init_size, self._get_commitlog_size('-b'))
+        # self.assertLess(init_size, commitlog_size())
