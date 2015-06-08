@@ -2,7 +2,10 @@ from dtest import Tester
 
 import ast
 import time
-from jmxutils import make_mbean, JolokiaAgent
+from jmxutils import make_mbean, JolokiaAgent, remove_perf_disable_shared_mem
+from tools import since
+import os
+from ccmlib import common
 
 class TestConfiguration(Tester):
 
@@ -30,34 +33,46 @@ class TestConfiguration(Tester):
         """
         @jira_ticket 9560
         """
-        # We want writes to block on commitlog fsync
-        self.cluster.set_configuration_options(batch_commitlog=True)
-        self.cluster.populate(1).start(wait_for_binary_proto=True)
+        # writes should block on commitlog fsync
+        self.cluster.populate(1)
         node = self.cluster.nodelist()[0]
+        # disable JVM option so we can use Jolokia
+        self.cluster.set_configuration_options(batch_commitlog=True)
+        remove_perf_disable_shared_mem(node)
+        self.cluster.start(wait_for_binary_proto=True)
         cursor = self.patient_cql_connection(node)
 
-        # commitlog_size_mbean = make_mbean('metrics', type='CommitLog', name='TotalCommitLogSize', keyspace='ks')
         commitlog_size_mbean = make_mbean('metrics', type='CommitLog', name='TotalCommitLogSize')
+
         def commit_log_size():
             with JolokiaAgent(node) as jmx:
                 return jmx.read_attribute(commitlog_size_mbean, 'Value')
 
         init_size = commit_log_size()
-
         cursor.execute("CREATE KEYSPACE ks WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 1} "
+                       "AND DURABLE_WRITES = true")
+        cursor.execute('CREATE TABLE ks.tab (key int PRIMARY KEY, a int)')
+        stress_write(node)
+
+        debug('with durable writes: size diff = ' + str(commit_log_size() - init_size))
+        # self.assertEqual(init_size, commit_log_size())
+
+        init_size = commit_log_size()
+        cursor.execute("CREATE KEYSPACE ks2 WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 1} "
                        "AND DURABLE_WRITES = false")
         cursor.execute('CREATE TABLE ks.tab (key int PRIMARY KEY, a int)')
-        cursor.execute('INSERT INTO ks.tab (key, a) VALUES (1, 4)')
+        stress_write(node)
+        debug('without durable writes: size diff = ' + str(commit_log_size() - init_size))
 
-        self.assertEqual(init_size, commit_log_size())
+        # self.assertEqual(init_size, commit_log_size())
 
-        cursor.execute('ALTER KEYSPACE WITH WITH DURABLE_WRITES = true')
+        # cursor.execute('ALTER KEYSPACE ks WITH DURABLE_WRITES = true')
 
-        self.assertEqual(init_size, commit_log_size())
+        # self.assertEqual(init_size, commit_log_size())
 
-        cursor.execute('INSERT INTO ks.tab (key, a) VALUES (2, 5)')
+        # cursor.execute('INSERT INTO ks.tab (key, a) VALUES (2, 5)')
 
-        self.assertLess(init_size, commit_log_size())
+        # self.assertLess(init_size, commit_log_size())
 
     def _check_chunk_length(self, cursor, value):
         describe_table_query = "SELECT * FROM system.schema_columnfamilies WHERE keyspace_name='ks' AND columnfamily_name='test_table';"
@@ -75,3 +90,10 @@ class TestConfiguration(Tester):
         chunk_length = int( params['chunk_length_kb'] )
 
         assert chunk_length == value, "Expected chunk_length: %s.  We got: %s" % (value, chunk_length)
+
+
+def stress_write(node):
+    if node.get_cassandra_version() < '2.1':
+        node.stress(['--num-keys=100000'])
+    else:
+        node.stress(['write', 'n=100000'])
