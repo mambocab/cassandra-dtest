@@ -3,9 +3,10 @@ from dtest import Tester
 import ast
 import time
 from jmxutils import make_mbean, JolokiaAgent, remove_perf_disable_shared_mem
-from tools import since
+from tools import since, debug
 import os
 from ccmlib import common
+from cassandra.concurrent import execute_concurrent_with_args
 
 class TestConfiguration(Tester):
 
@@ -32,49 +33,64 @@ class TestConfiguration(Tester):
     def change_durable_writes_test(self):
         """
         @jira_ticket 9560
+
+        Test that changes to the DURABLE_WRITES option on keyspaces is
+        respected in subsequent writes.
+
+        This test starts by writing a dataset to a cluster and asserting that
+        the commitlogs have been written to. The subsequent test depends on
+        the assumption that this dataset triggers an fsync.
+
+        After checking this assumption, the test destroys the cluster and
+        creates a fresh one. Then it tests that DURABLE_WRITES is respected by:
+
+        - creating a keyspace with DURABLE_WRITES set to false,
+        - using ALTER KEYSPACE to set its DURABLE_WRITES option to true,
+        - writing a dataset to this keyspace that is known to trigger a commitlog fsync,
+        - asserting that the commitlog has grown in size since the data was written.
         """
-        # writes should block on commitlog fsync
-        self.cluster.populate(1)
-        node = self.cluster.nodelist()[0]
-        self.cluster.set_configuration_options(values={'commitlog_segment_size_in_mb': 1}, batch_commitlog=True)
+        def new_commitlog_cluster_node():
+            # writes should block on commitlog fsync
+            self.cluster.populate(1)
+            node = self.cluster.nodelist()[0]
+            self.cluster.set_configuration_options(values={'commitlog_segment_size_in_mb': 1}, batch_commitlog=True)
 
-        # disable JVM option so we can use Jolokia
-        # this has to happen after .set_configuration_options because of implmentation details
-        remove_perf_disable_shared_mem(node)
-        self.cluster.start(wait_for_binary_proto=True)
-        cursor = self.patient_cql_connection(node)
+            # disable JVM option so we can use Jolokia
+            # this has to happen after .set_configuration_options because of implmentation details
+            remove_perf_disable_shared_mem(node)
+            self.cluster.start(wait_for_binary_proto=True)
+            return node
 
-        commitlog_size_mbean = make_mbean('metrics', type='CommitLog', name='TotalCommitLogSize')
+        durable_node = new_commitlog_cluster_node()
+        durable_init_size = commitlog_size(durable_node)
+        durable_session = self.patient_exclusive_cql_connection(durable_node)
 
-        def commit_log_size():
-            with JolokiaAgent(node) as jmx:
-                return jmx.read_attribute(commitlog_size_mbean, 'Value')
+        # test assumption that write_to_trigger_fsync actually triggers a commitlog fsync
+        durable_session.execute("CREATE KEYSPACE ks WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 1} "
+                                "AND DURABLE_WRITES = true")
+        durable_session.execute('CREATE TABLE ks.tab (key int PRIMARY KEY, a int, b int, c int)')
+        debug('commitlog size diff = ' + str(commitlog_size(durable_node) - durable_init_size))
+        write_to_trigger_fsync(durable_session, 'ks', 'tab')
 
-        init_size = commit_log_size()
-        cursor.execute("CREATE KEYSPACE ks WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 1} "
-                       "AND DURABLE_WRITES = true")
-        cursor.execute('CREATE TABLE ks.tab (key int PRIMARY KEY, a int)')
-        stress_write(node)
+        self.assertGreater(commitlog_size(durable_node), durable_init_size,
+                           msg='This test will not work in this environment; '
+                               'write_to_trigger_fsync does not trigger fsync.')
 
-        debug('with durable writes: size diff = ' + str(commit_log_size() - init_size))
-        # self.assertEqual(init_size, commit_log_size())
+        # get a fresh cluster to work on
+        self.tearDown()
+        self.setUp()
 
-        init_size = commit_log_size()
-        cursor.execute("CREATE KEYSPACE ks2 WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 1} "
-                       "AND DURABLE_WRITES = false")
-        cursor.execute('CREATE TABLE ks.tab (key int PRIMARY KEY, a int)')
-        stress_write(node)
-        debug('without durable writes: size diff = ' + str(commit_log_size() - init_size))
+        node = new_commitlog_cluster_node()
+        init_size = commitlog_size(node)
+        session = self.patient_exclusive_cql_connection(node)
 
-        # self.assertEqual(init_size, commit_log_size())
-
-        # cursor.execute('ALTER KEYSPACE ks WITH DURABLE_WRITES = true')
-
-        # self.assertEqual(init_size, commit_log_size())
-
-        # cursor.execute('INSERT INTO ks.tab (key, a) VALUES (2, 5)')
-
-        # self.assertLess(init_size, commit_log_size())
+        # set up a keyspace without durable writes, then alter it to use them
+        session.execute("CREATE KEYSPACE ks WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 1} "
+                        "AND DURABLE_WRITES = false")
+        session.execute('CREATE TABLE ks.tab (key int PRIMARY KEY, a int, b int, c int)')
+        session.execute('ALTER KEYSPACE ks WITH DURABLE_WRITES=true')
+        self.assertGreater(commitlog_size(node), init_size,
+                           msg='ALTER KEYSPACE was not respected')
 
     def _check_chunk_length(self, cursor, value):
         describe_table_query = "SELECT * FROM system.schema_columnfamilies WHERE keyspace_name='ks' AND columnfamily_name='test_table';"
@@ -94,8 +110,19 @@ class TestConfiguration(Tester):
         assert chunk_length == value, "Expected chunk_length: %s.  We got: %s" % (value, chunk_length)
 
 
-def stress_write(node):
-    if node.get_cassandra_version() < '2.1':
-        node.stress(['--num-keys=100000'])
-    else:
-        node.stress(['write', 'n=100000'])
+def write_to_trigger_fsync(session, ks, table):
+    """
+    Given a session, a keyspace name, and a table name, inserts enough values
+    to trigger an fsync to the commitlog, assuming the cluster's
+    commitlog_segment_size_in_mb is 1. Assumes the table's columns are
+    (key int, a int, b int, c int).
+    """
+    execute_concurrent_with_args(session,
+                                 session.prepare('INSERT INTO "{ks}"."{table}" (key, a, b, c) VALUES (?, ?, ?, ?)'.format(ks=ks, table=table)),
+                                 ((x, x+1, x+2, x+3) for x in range(50000)))
+
+
+def commitlog_size(node):
+    commitlog_size_mbean = make_mbean('metrics', type='CommitLog', name='TotalCommitLogSize')
+    with JolokiaAgent(node) as jmx:
+        return jmx.read_attribute(commitlog_size_mbean, 'Value')
