@@ -9,6 +9,7 @@ from cassandra import WriteTimeout
 from cassandra.cluster import NoHostAvailable, OperationTimedOut
 from dtest import Tester, debug
 from assertions import assert_one, assert_none, assert_almost_equal
+from cassandra.concurrent import execute_concurrent_with_args
 
 
 class TestCommitLog(Tester):
@@ -268,7 +269,8 @@ class TestCommitLog(Tester):
         )
 
     def batch_sync_test(self):
-        self.cluster.set_configuration_options(batch_commitlog=True)
+        self.cluster.set_configuration_options(values={'commitlog_segment_size_in_mb': 1},
+                                               batch_commitlog=True)
         self.cluster.start(wait_for_binary_proto=True)
         cursor = self.patient_cql_connection(self.node1)
 
@@ -276,11 +278,11 @@ class TestCommitLog(Tester):
 
         cursor.execute("CREATE KEYSPACE ks WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 1} "
                        "AND DURABLE_WRITES = true")
-        cursor.execute('CREATE TABLE ks.tab (key int PRIMARY KEY, a int)')
+        cursor.execute('CREATE TABLE ks.tab (key int PRIMARY KEY, a int, b int, c int)')
 
-        prepared = cursor.prepare('INSERT INTO ks.tab (key, a) VALUES (?, ?)')
-        for t in [(x, x+1) for x in range(10000)]:
-            cursor.execute(prepared, t)
+        execute_concurrent_with_args(cursor,
+                                     cursor.prepare('INSERT INTO ks.tab (key, a, b, c) VALUES (?, ?, ?, ?)'),
+                                     ((x, x+1, x+2, x+3) for x in range(50000)))
 
         self.assertLess(init_size, self._get_commitlog_size('-b'))
         # self.assertLess(init_size, commitlog_size())
