@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from dtest import Tester
 from jmxutils import JolokiaAgent, make_mbean, remove_perf_disable_shared_mem
-from tools import debug, since
+from tools import debug
 
 
 class TestNewRowFormat(Tester):
@@ -86,7 +86,6 @@ class TestNewRowFormat(Tester):
         self.cluster.flush()
 
 
-@since('3.0')
 class SSTableSizeTest(TestNewRowFormat):
 
     def dense_sstables_smaller_test(self):
@@ -146,7 +145,6 @@ class SSTableSizeTest(TestNewRowFormat):
         self.assertGreater(old_size, new_size)
 
 
-@since('3.0')
 class CompactionSpeedTest(TestNewRowFormat):
     def compaction_speed_test(self):
         """
@@ -188,7 +186,6 @@ class CompactionSpeedTest(TestNewRowFormat):
         self.assertGreater(new_time, old_time)
 
 
-@since('3.0')
 class SchemaChangeTest(TestNewRowFormat):
     def schema_change_speed_test(self):
         def schema_change_time(ks, table, install_dir=None, version=None):
