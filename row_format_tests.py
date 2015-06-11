@@ -51,7 +51,7 @@ class TestNewRowFormat(Tester):
         self.tearDown()
         self.setUp(version=version, install_dir=install_dir)
 
-    def write_graphlike_data(self, ks_name, table_name, sparse, n=10000, num_columns=1000):
+    def write_graphlike_data(self, ks_name, table_name, sparse, n=10000, num_columns=1000, compact_storage=False):
         """
         Writes 10000 values to ks_name.table_name. If sparse, 70% of the
         values written will be null; if not sparse, 30% of the values will be
@@ -66,7 +66,8 @@ class TestNewRowFormat(Tester):
 
         self.create_ks(session, ks_name, 1)
         self.create_cf(session, table_name, key_type='uuid',
-                       columns={k: 'int' for k in column_names})
+                       columns={k: 'int' for k in column_names},
+                       compact_storage=compact_storage)
 
         null_prob = .3 if sparse else .7
 
@@ -143,6 +144,52 @@ class SSTableSizeTest(TestNewRowFormat):
 
         debug('new/old = {}'.format(new_size / old_size))
         self.assertGreater(old_size, new_size)
+
+    def compare_compact_storage_test(self):
+        new_session = self.patient_cql_connection(self.node1)
+        self.create_ks(new_session, 'ks', 1)
+        new_session.execute('CREATE TABLE standard1 (key int PRIMARY KEY, a int, b int, c int)')
+
+        prepared = new_session.prepare('INSERT INTO standard1 (key, a, b, c) VALUES (?, ?, ?, ?)')
+        for x in range(10000):
+            new_session.execute(prepared, (x, x+1, x-1, x+10))
+        self.node1.flush()
+
+        new_format_disk_size = sstables_size(self.node1, 'ks', 'standard1')
+        debug('disk used by {}: {}'.format(self.cluster.version(), new_format_disk_size))
+
+        self.set_new_cluster(version='git:cassandra-2.2')
+
+        compact_session = self.patient_cql_connection(self.node1)
+        self.create_ks(compact_session, 'ks', 1)
+        compact_session.execute('CREATE TABLE standard1 (key int PRIMARY KEY, a int, b int, c int) '
+                                'WITH COMPACT STORAGE')
+
+        prepared = compact_session.prepare('INSERT INTO standard1 (key, a, b, c) VALUES (?, ?, ?, ?)')
+        for x in range(10000):
+            compact_session.execute(prepared, (x, x+1, x-1, x+10))
+        self.node1.flush()
+
+        compact_storage_disk_size = sstables_size(self.node1, 'ks', 'standard1')
+        debug('disk used by {}: {}'.format(self.cluster.version(), compact_storage_disk_size))
+
+        debug('new/compact = {}'.format(new_format_disk_size / compact_storage_disk_size))
+        self.assertGreater(compact_storage_disk_size, new_format_disk_size)
+
+    def compare_compact_storage_sparse_test(self):
+        def disk_used_for_install(ks='ks', table='tab', install_dir=None, version=None, compact_storage=False):
+            if install_dir is not None or version is not None:
+                self.set_new_cluster(install_dir=install_dir, version=version)
+            self.write_graphlike_data(ks, table, sparse=True, compact_storage=compact_storage)
+            disk_used = sstables_size(self.node1, ks, table)
+            debug('disk used by {}: {}'.format(self.cluster.version(), disk_used))
+            return disk_used
+
+        new_size = disk_used_for_install()
+        compact_size = disk_used_for_install(version='git:cassandra-2.2', compact_storage=True)
+
+        debug('new/compact = {}'.format(new_size / compact_size))
+        self.assertGreater(compact_size, new_size)
 
 
 class CompactionSpeedTest(TestNewRowFormat):
