@@ -9,7 +9,11 @@ from tools import rows_to_list, since
 class TestCounters(Tester):
 
     def simple_increment_test(self):
-        """ Simple incrementation test (Created for #3465, that wasn't a bug) """
+        """
+        @jira_ticket CASSANDRA-3465
+
+        Simple incrementation test (Created for #3465, that wasn't a bug)
+        """
         cluster = self.cluster
 
         cluster.populate(3).start()
@@ -41,7 +45,9 @@ class TestCounters(Tester):
                 assert res[c][1] == i + 1, "Expecting counter%i = %i, got %i" % (c, i + 1, res[c][0])
 
     def upgrade_test(self):
-        """ Test for bug of #4436 """
+        """
+        @jira_ticket CASSANDRA-4436
+        """
 
         cluster = self.cluster
 
