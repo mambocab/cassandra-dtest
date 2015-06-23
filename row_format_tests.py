@@ -37,15 +37,18 @@ class TestNewRowFormat(Tester):
     Since we can't do much better than the existing test suite, schema change
     correctness tests will be handled by the fuzz-testing harness.
     """
+    num_nodes = 1
+    start_cluster_on_setUp = True
 
     def setUp(self, version=None, install_dir=None):
         Tester.setUp(self)
         if version is not None or install_dir is not None:
             self.cluster.set_install_dir(version=version, install_dir=install_dir)
-        self.cluster.populate(1)
+        self.cluster.populate(self.num_nodes)
         self.node1 = self.cluster.nodelist()[0]
         remove_perf_disable_shared_mem(self.node1)
-        self.cluster.start(wait_for_binary_proto=True)
+        if self.start_cluster_on_setUp:
+            self.cluster.start(wait_for_binary_proto=True)
 
     def set_new_cluster(self, version=None, install_dir=None):
         self.tearDown()
@@ -256,6 +259,40 @@ class SchemaChangeTest(TestNewRowFormat):
 
         debug('new/old = {}'.format(new_time / old_time))
         self.assertGreater(new_time, old_time)
+
+
+class MixedClusterReadTest(TestNewRowFormat):
+    num_nodes = 6
+    start_cluster_on_setUp = True
+
+    def compare_reads_cluster_versions_test(self):
+        old_time = self.upgrade_nodes_and_read(0)
+        debug('old time: {old_time}'.format(old_time=old_time))
+        mixed_time = self.upgrade_nodes_and_read(3)
+        debug('mixed time: {mixed_time}'.format(mixed_time=mixed_time))
+        new_time = self.upgrade_nodes_and_read(self.num_nodes)
+        debug('new time: {new_time}'.format(new_time=new_time))
+
+        debug('old time: {old_time}\n'.format(old_time=old_time) +
+              'mixed time: {mixed_time}\n'.format(mixed_time=mixed_time) +
+              'new time: {new_time}'.format(new_time=new_time))
+
+    def upgrade_nodes_and_read(self, n_nodes):
+        self.set_new_cluster(version='git:cassandra-2.2')
+        self.cluster.start(wait_for_binary_proto=True,
+                           wait_other_notice=True)
+
+        self.node1.stress(['write'])
+
+        for n in self.cluster.nodelist()[:n_nodes]:
+            n.drain()
+            n.set_install_dir(version='github:pcmanus/8099_to_test')
+        self.cluster.start(wait_for_binary_proto=True,
+                           wait_other_notice=True)
+
+        start = time.time()
+        self.node1.stress(['read'])
+        return time.time() - start
 
 
 def unique_names(min_length=5):
