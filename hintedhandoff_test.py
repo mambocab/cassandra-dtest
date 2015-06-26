@@ -5,7 +5,7 @@ from cassandra import ConsistencyLevel
 @require("9035")
 class TestHintedHandoff(Tester):
 
-    def _start_two_node_cluster(self, config_options=None):
+    def _start_two_node_cluster(self, config_options = None):
         """
         Start a cluster with two nodes and return them
         """
