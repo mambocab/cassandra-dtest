@@ -1043,6 +1043,30 @@ Tracing session:""")
 Warnings :
 Unlogged batch covering 2 partitions detected against table [client_warnings.test]. You should use a logged batch for atomicity, or asynchronous writes for performance.""")
 
+    def test_describe_round_trip(self):
+        """
+        @jira_ticket CASSANDRA-9064
+        """
+        self.cluster.populate(1)
+        self.cluster.start(wait_for_binary_proto=True)
+        node1, = self.cluster.nodelist()
+        session = self.patient_cql_connection(node1)
+
+        self.create_ks(session, 'test_ks', 1)
+        session.execute("CREATE TABLE lcs_describe (key int PRIMARY KEY) WITH compaction = "
+                        "{'class': 'LeveledCompactionStrategy'}")
+        describe_out, describe_err = self.run_cqlsh(node1, 'DESCRIBE TABLE test_ks.lcs_describe')
+        debug('describe output:')
+        debug(describe_out)
+        self.assertEqual(describe_err, '')
+
+        session.execute('DROP TABLE test_ks.lcs_describe')
+
+        create_out, create_err = self.run_cqlsh(node1, describe_out)
+        debug('create output:')
+        debug(create_out)
+        self.assertEqual(create_err, '')
+
     def run_cqlsh(self, node, cmds, cqlsh_options=[]):
         cdir = node.get_install_dir()
         cli = os.path.join(cdir, 'bin', common.platform_binary('cqlsh'))
