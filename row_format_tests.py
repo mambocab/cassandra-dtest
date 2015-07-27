@@ -2,7 +2,7 @@ from __future__ import division
 
 import time
 from itertools import islice, product, tee
-from random import randint, random
+from random import randint, random, shuffle
 from string import ascii_lowercase as letters
 from uuid import uuid4
 
@@ -54,7 +54,10 @@ class TestNewRowFormat(Tester):
         self.tearDown()
         self.setUp(version=version, install_dir=install_dir)
 
-    def write_graphlike_data(self, ks_name, table_name, sparse, n=10000, num_columns=1000, compact_storage=False):
+    def write_graphlike_data(self, ks_name, table_name, sparse=None,
+                             n=10000, num_columns=1000,
+                             compact_storage=False,
+                             nonnull_n=None):
         """
         Writes 10000 values to ks_name.table_name. If sparse, 70% of the
         values written will be null; if not sparse, 30% of the values will be
@@ -63,6 +66,8 @@ class TestNewRowFormat(Tester):
         Ideally, in the future, we can do this with cassandra-stress, which
         will give us easy flexibility for datatypes, etc.
         """
+        if ((sparse is None and nonnull_n is None) or (sparse is not None and nonnull_n is not None)):
+            debug('sparse = {} and nonnull_n = {}: nope'.format(sparse, nonnull_n))
         session = self.patient_exclusive_cql_connection(self.cluster.nodelist()[0])
 
         column_names = list(islice(unique_names(), num_columns))
@@ -74,8 +79,19 @@ class TestNewRowFormat(Tester):
 
         null_prob = .3 if sparse else .7
 
-        data = ([uuid4()] + [random_int_or_null(null_prob) for x in range(num_columns)]
-                for y in range(n))
+        if nonnull_n is not None:
+            data = []
+            for row in range(n):
+                positions = list(range(num_columns))
+                shuffle(positions)
+                positions = positions[:nonnull_n]
+                values = ([None] * num_columns)
+                for p in positions:
+                    values[p] = randint(-(2 ** 30), 2 ** 30)
+                data.append([uuid4()] + values)
+        else:
+            data = ([uuid4()] + [random_int_or_null(null_prob) for x in range(num_columns)]
+                    for y in range(n))
 
         insert_cql = 'INSERT INTO ' + table_name
         insert_cql += ' (' + ', '.join(['key'] + column_names) + ' ) '
@@ -193,6 +209,31 @@ class SSTableSizeTest(TestNewRowFormat):
 
         debug('new/compact = {}'.format(new_size / compact_size))
         self.assertGreater(compact_size, new_size)
+
+    def compare_numbers_of_set_columns(self, nonnull_n):
+        debug('running with {} non-null columns'.format(nonnull_n))
+
+        def disk_used_for_install(ks='ks', table='tab', install_dir=None, version=None, compact_storage=False):
+            if install_dir is not None or version is not None:
+                self.set_new_cluster(install_dir=install_dir, version=version)
+                self.cluster.start(wait_for_binary_proto=True)
+            self.write_graphlike_data(ks, table,
+                                      n=1000000, num_columns=500,
+                                      nonnull_n=nonnull_n)
+            disk_used = sstables_size(self.node1, ks, table)
+            debug('disk used by {}: {}'.format(self.cluster.version(), disk_used))
+            return disk_used
+
+        new_size = disk_used_for_install()
+
+    def compare_numbers_of_set_columns_test2(self):
+        self.compare_numbers_of_set_columns(2)
+
+    def compare_numbers_of_set_columns_test5(self):
+        self.compare_numbers_of_set_columns(5)
+
+    def compare_numbers_of_set_columns_test10(self):
+        self.compare_numbers_of_set_columns(10)
 
 
 class CompactionSpeedTest(TestNewRowFormat):
