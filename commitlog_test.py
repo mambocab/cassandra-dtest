@@ -101,15 +101,22 @@ class TestCommitLog(Tester):
         commitlogs = self._get_commitlog_files()
         assert_almost_equal(len(commitlogs), num_commitlog_files,
                             error=files_error)
-        for f in commitlogs:
-            size = os.path.getsize(f)
+
+        # the last segment may be smaller than the rest; initial segments are
+        # finished being written and will be of expected size
+        # so we allow exactly one small segment
+        small_segment_found = False
+        commitlogs_sizes = tuple((name, int(os.path.getsize(name)))
+                                 for name in commitlogs)
+	                         
+        for name, size in commitlogs_sizes:
             size_in_mb = int(size/1024/1024)
             if size_in_mb < 1 or size < (segment_size*0.1):
                 continue   # commitlog not yet used
 
             tolerated_error = 0.15 if compressed else 0.05
 
-            assert_almost_equal(size, segment_size, error=tolerated_error)
+	    assert_almost_equal(size, segment_size, error=tolerated_error)
 
     def _provoke_commitlog_failure(self):
         """ Provoke the commitlog failure """
