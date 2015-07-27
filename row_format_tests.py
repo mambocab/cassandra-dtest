@@ -68,10 +68,12 @@ class TestNewRowFormat(Tester):
         """
         if ((sparse is None and nonnull_n is None) or (sparse is not None and nonnull_n is not None)):
             debug('sparse = {} and nonnull_n = {}: nope'.format(sparse, nonnull_n))
+            assert False
         session = self.patient_exclusive_cql_connection(self.cluster.nodelist()[0])
 
         column_names = list(islice(unique_names(), num_columns))
 
+        debug('creating table')
         self.create_ks(session, ks_name, 1)
         self.create_cf(session, table_name, key_type='uuid',
                        columns={k: 'int' for k in column_names},
@@ -79,16 +81,21 @@ class TestNewRowFormat(Tester):
 
         null_prob = .3 if sparse else .7
 
+        debug('creating random data')
         if nonnull_n is not None:
-            data = []
-            for row in range(n):
+            def get_random_row():
                 positions = list(range(num_columns))
                 shuffle(positions)
                 positions = positions[:nonnull_n]
                 values = ([None] * num_columns)
                 for p in positions:
                     values[p] = randint(-(2 ** 30), 2 ** 30)
-                data.append([uuid4()] + values)
+                return [uuid4()] + values
+
+            def _data_gen():
+                for i in range(n):
+                    yield get_random_row()
+            data = _data_gen()
         else:
             data = ([uuid4()] + [random_int_or_null(null_prob) for x in range(num_columns)]
                     for y in range(n))
@@ -102,6 +109,8 @@ class TestNewRowFormat(Tester):
 
         for i, d in enumerate(data):
             session.execute(prepared, d)
+            if i and i % 5000 == 0:
+                debug('writing row {}'.format(i))
 
         self.cluster.flush()
 
@@ -225,6 +234,8 @@ class SSTableSizeTest(TestNewRowFormat):
             return disk_used
 
         new_size = disk_used_for_install()
+
+        debug('{} non-null columns: {}'.format(nonnull_n, new_size))
 
     def compare_numbers_of_set_columns_test2(self):
         self.compare_numbers_of_set_columns(2)
