@@ -57,6 +57,7 @@ class TestNewRowFormat(Tester):
     def write_graphlike_data(self, ks_name, table_name, sparse=None,
                              n=10000, num_columns=1000,
                              compact_storage=False,
+                             num_settable_columns=None,
                              nonnull_n=None):
         """
         Writes 10000 values to ks_name.table_name. If sparse, 70% of the
@@ -83,10 +84,15 @@ class TestNewRowFormat(Tester):
 
         debug('creating random data')
         if nonnull_n is not None:
+            valid_positions = list(range(num_columns))
+            if num_settable_columns:
+                shuffle(valid_positions)
+                valid_positions = valid_positions[:num_settable_columns]
+
             def get_random_row():
-                positions = list(range(num_columns))
-                shuffle(positions)
-                positions = positions[:nonnull_n]
+                valid_positions_for_row = valid_positions[:]
+                shuffle(valid_positions_for_row)
+                positions = valid_positions_for_row[:nonnull_n]
                 values = ([None] * num_columns)
                 for p in positions:
                     values[p] = randint(-(2 ** 30), 2 ** 30)
@@ -110,7 +116,7 @@ class TestNewRowFormat(Tester):
         for i, d in enumerate(data):
             session.execute(prepared, d)
             if i and i % 5000 == 0:
-                debug('writing row {}'.format(i))
+                debug('writing row {}: {}'.format(i, d))
 
         self.cluster.flush()
 
@@ -245,6 +251,39 @@ class SSTableSizeTest(TestNewRowFormat):
 
     def compare_numbers_of_set_columns_test10(self):
         self.compare_numbers_of_set_columns(10)
+
+    def compare_with_limited_settable_columns(self, nonnull_n, num_settable_columns):
+        debug('running with {} non-null columns'.format(nonnull_n))
+
+        def disk_used_for_install(ks='ks', table='tab', install_dir=None, version=None, compact_storage=False):
+            if install_dir is not None or version is not None:
+                self.set_new_cluster(install_dir=install_dir, version=version)
+                self.cluster.start(wait_for_binary_proto=True)
+            self.write_graphlike_data(ks, table,
+                                      n=1000000, num_columns=500,
+                                      nonnull_n=nonnull_n)
+            disk_used = sstables_size(self.node1, ks, table)
+            debug('disk used by {}: {}'.format(self.cluster.version(), disk_used))
+            return disk_used
+
+        new_size = disk_used_for_install()
+
+        debug('{}: {} non-null columns; {} valid columns: {}'.format(self.cluster.version(),
+                                                                     nonnull_n,
+                                                                     num_settable_columns,
+                                                                     new_size))
+
+    def compare_all_settable_columns(self):
+        self.compare_with_limited_settable_columns(nonnull_n=5, num_settable_columns=None)
+
+    def compare_50_settable_columns(self):
+        self.compare_with_limited_settable_columns(nonnull_n=5, num_settable_columns=50)
+
+    def compare_10_settable_columns(self):
+        self.compare_with_limited_settable_columns(nonnull_n=5, num_settable_columns=10)
+
+    def compare_5_settable_columns(self):
+        self.compare_with_limited_settable_columns(nonnull_n=5, num_settable_columns=5)
 
 
 class CompactionSpeedTest(TestNewRowFormat):
