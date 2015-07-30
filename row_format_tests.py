@@ -113,10 +113,21 @@ class TestNewRowFormat(Tester):
         debug('preparing...')
         prepared = session.prepare(insert_cql)
 
+        prepared_check = session.prepare('SELECT * FROM ' + table_name + ' WHERE key = ?' )
+
         for i, d in enumerate(data):
+            if nonnull_n:
+                self.assertEqual(len(d) - d.count(None), nonnull_n + 1)
             session.execute(prepared, d)
             if i and i % 5000 == 0:
                 debug('writing row {}: {}'.format(i, d))
+            if randint(0, 99) == 0:
+                debug('checking the row...')
+                bound = prepared_check.bind([d[0]])
+                debug(bound)
+                bound_return = list(session.execute(bound))[0]
+                self.assertEqual(len(bound_return) - bound_return.count(None),
+                                 nonnull_n + 1)
 
         self.cluster.flush()
 
@@ -225,7 +236,7 @@ class SSTableSizeTest(TestNewRowFormat):
         debug('new/compact = {}'.format(new_size / compact_size))
         self.assertGreater(compact_size, new_size)
 
-    def compare_numbers_of_set_columns(self, nonnull_n):
+    def compare_numbers_of_set_columns(self, nonnull_n, rows=None):
         debug('running with {} non-null columns'.format(nonnull_n))
 
         def disk_used_for_install(ks='ks', table='tab', install_dir=None, version=None, compact_storage=False):
@@ -233,7 +244,7 @@ class SSTableSizeTest(TestNewRowFormat):
                 self.set_new_cluster(install_dir=install_dir, version=version)
                 self.cluster.start(wait_for_binary_proto=True)
             self.write_graphlike_data(ks, table,
-                                      n=1000000, num_columns=500,
+                                      n=(rows or 1000000), num_columns=500,
                                       nonnull_n=nonnull_n)
             disk_used = sstables_size(self.node1, ks, table)
             debug('disk used by {}: {}'.format(self.cluster.version(), disk_used))
@@ -242,6 +253,15 @@ class SSTableSizeTest(TestNewRowFormat):
         new_size = disk_used_for_install()
 
         debug('{} non-null columns: {}'.format(nonnull_n, new_size))
+
+    def compare_numbers_of_set_columns_test2_small_data(self):
+        self.compare_numbers_of_set_columns(2, rows=500)
+
+    def compare_numbers_of_set_columns_test5_small_data(self):
+        self.compare_numbers_of_set_columns(5, rows=500)
+
+    def compare_numbers_of_set_columns_test10_small_data(self):
+        self.compare_numbers_of_set_columns(10, rows=500)
 
     def compare_numbers_of_set_columns_test2(self):
         self.compare_numbers_of_set_columns(2)
@@ -252,7 +272,7 @@ class SSTableSizeTest(TestNewRowFormat):
     def compare_numbers_of_set_columns_test10(self):
         self.compare_numbers_of_set_columns(10)
 
-    def compare_with_limited_settable_columns(self, nonnull_n, num_settable_columns):
+    def compare_with_limited_settable_columns(self, nonnull_n, num_settable_columns, rows=None):
         debug('running with {} non-null columns'.format(nonnull_n))
 
         def disk_used_for_install(ks='ks', table='tab', install_dir=None, version=None, compact_storage=False):
@@ -260,7 +280,7 @@ class SSTableSizeTest(TestNewRowFormat):
                 self.set_new_cluster(install_dir=install_dir, version=version)
                 self.cluster.start(wait_for_binary_proto=True)
             self.write_graphlike_data(ks, table,
-                                      n=1000000, num_columns=500,
+                                      n=(rows or 1000000), num_columns=500,
                                       nonnull_n=nonnull_n)
             disk_used = sstables_size(self.node1, ks, table)
             debug('disk used by {}: {}'.format(self.cluster.version(), disk_used))
@@ -272,6 +292,18 @@ class SSTableSizeTest(TestNewRowFormat):
                                                                      nonnull_n,
                                                                      num_settable_columns,
                                                                      new_size))
+
+    def compare_all_settable_columns_small_data(self):
+        self.compare_with_limited_settable_columns(nonnull_n=5, rows=500, num_settable_columns=None)
+
+    def compare_50_settable_columns_small_data(self):
+        self.compare_with_limited_settable_columns(nonnull_n=5, rows=500, num_settable_columns=50)
+
+    def compare_10_settable_columns_small_data(self):
+        self.compare_with_limited_settable_columns(nonnull_n=5, rows=500, num_settable_columns=10)
+
+    def compare_5_settable_columns_small_data(self):
+        self.compare_with_limited_settable_columns(nonnull_n=5, rows=500, num_settable_columns=5)
 
     def compare_all_settable_columns(self):
         self.compare_with_limited_settable_columns(nonnull_n=5, num_settable_columns=None)
