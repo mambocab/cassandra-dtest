@@ -53,10 +53,13 @@ class TestCommitLog(Tester):
 
     def _change_commitlog_perms(self, mod):
         path = self._get_commitlog_path()
+        for root, dirs, files in os.walk(path):
+            for f in files:
+                os.chmod(os.path.join(root, f), mod)
+            for d in dirs:
+                os.chmod(os.path.join(root, d), mod)
         os.chmod(path, mod)
-        commitlogs = glob.glob(path+'/*')
-        for commitlog in commitlogs:
-            os.chmod(commitlog, mod)
+
 
     def _get_commitlog_path(self):
         """ Returns the commitlog path """
@@ -194,7 +197,8 @@ class TestCommitLog(Tester):
         self.prepare()
 
         self._provoke_commitlog_failure()
-        failure = self.node1.grep_log("Failed .+ commit log segments. Commit disk failure policy is stop; terminating thread")
+        failure = self.node1.grep_log("failure policy")
+        # failure = self.node1.grep_log("Failed .+ commit log segments. Commit disk failure policy is stop; terminating thread")
         debug(failure)
         self.assertTrue(failure, "Cannot find the commitlog failure message in logs")
         self.assertTrue(self.node1.is_running(), "Node1 should still be running")
