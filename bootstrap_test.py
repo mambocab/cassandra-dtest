@@ -345,8 +345,8 @@ class TestBootstrap(Tester):
         Test that if we decommission a node and then wipe its data, it can join the cluster.
         """
         cluster = self.cluster
-        cluster.populate(3)
-        # cluster.populate(1)  # changes the behavior of cqlsh below
+        # cluster.populate(3)
+        cluster.populate(1)  # changes the behavior of cqlsh below
         cluster.start(wait_for_binary_proto=True)
 
         version = cluster.version()
@@ -360,14 +360,7 @@ class TestBootstrap(Tester):
         else:
             node1.stress(['write', 'n={}'.format(n), '-rate', 'threads=8'])
 
-        # this fails when there are 3 nodes, but succeeds when there is one
-        stdout, stderr = node1.run_cqlsh("""
-                                         tracing on ; select * from {}
-                                         """.format(stress_table),
-                                         return_output=True)
-        debug(stdout)
-
-        # this fails on both 1- and 3-node clusters
+        # succeeds with 1 node, fails with 3
         session = self.patient_cql_connection(node1)
         original_rows = list(session.execute("SELECT * FROM {}".format(stress_table,)))
 
