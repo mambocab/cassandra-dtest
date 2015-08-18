@@ -5,6 +5,7 @@ import random
 import struct
 import time
 from collections import OrderedDict
+from unittest import skip
 from uuid import UUID
 
 from cassandra import AlreadyExists, ConsistencyLevel, InvalidRequest
@@ -22,6 +23,8 @@ from thrift_bindings.v22.ttypes import (CfDef, Column, ColumnOrSuperColumn,
                                         Mutation)
 from thrift_tests import get_thrift_client
 from tools import require, rows_to_list, since
+from upgrade_tests.upgrade_base import UpgradeTester
+
 
 class _CQLTests(Tester):
     __test__ = False
@@ -4532,3 +4535,8 @@ class TestCQLPre21(_CQLTests):
                 session.execute("DROP KEYSPACE IF EXISTS ks")
             self.create_ks(session, 'ks', rf)
         return session
+
+
+@skip('incomplete refactoring')
+class TestCQLUpgrade(_CQLTests, UpgradeTester):
+    __test__ = True
