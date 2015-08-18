@@ -24,9 +24,11 @@ from thrift_tests import get_thrift_client
 from tools import require, rows_to_list, since
 
 
-@since('1.0.x', max_version='2.0.x')
-@canReuseCluster
-class TestCQL(Tester):
+class _TestCQL(Tester):
+    """
+    This base class is to be inherited from for running CQL tests under different conditions.
+    """
+    __test__ = False
 
     def prepare(self, ordered=False, create_keyspace=True, use_cache=False, nodes=1, rf=1, protocol_version=None, **kwargs):
         cluster = self.cluster
@@ -4523,3 +4525,57 @@ class TestCQL(Tester):
             except Exception as e:
                 self.assertIsInstance(e, SyntaxException)
                 self.assertNotIn('NullPointerException', str(e))
+
+
+@since('1.0.x', max_version='2.0.x')
+@canReuseCluster
+class TestCQL20(_TestCQL):
+    """
+    These tests were deprecated in C* 2.1+  with CASSANDRA-9160. They are left
+    here to be run on C* 2.0 and lower.
+    """
+    __test__ = True
+
+
+class TestCQLMixedCluster(_TestCQL):
+    """
+    These tests are run on mixed clusters.
+    """
+    __test__ = True
+
+    def prepare(self, ordered=False, create_keyspace=True, use_cache=False, nodes=2, rf=1, protocol_version=None, **kwargs):
+        assert nodes >= 2, "backwards compatibility tests require at least two nodes"
+        assert not self._preserve_cluster, "preserve_cluster cannot be True for upgrade tests"
+
+        self.protocol_version = protocol_version
+
+        cluster = self.cluster
+
+        if (ordered):
+            cluster.set_partitioner("org.apache.cassandra.dht.ByteOrderedPartitioner")
+
+        if (use_cache):
+            cluster.set_configuration_options(values={'row_cache_size_in_mb': 100})
+
+        start_rpc = kwargs.pop('start_rpc', False)
+        if start_rpc:
+            cluster.set_configuration_options(values={'start_rpc': True})
+
+        cluster.set_configuration_options(values={'internode_compression': 'none'})
+        if not cluster.nodelist():
+            cluster.populate(nodes)
+            self.original_install_dir = cluster.nodelist()[0].get_install_dir()
+            if OLD_CASSANDRA_DIR:
+                cluster.set_install_dir(install_dir=OLD_CASSANDRA_DIR)
+            else:
+                cluster.set_install_dir(version='git:cassandra-2.1')
+            cluster.start()
+
+        node1 = cluster.nodelist()[0]
+        time.sleep(0.2)
+
+        session = self.patient_cql_connection(node1, protocol_version=protocol_version)
+        if create_keyspace:
+            self.create_ks(session, 'ks', rf)
+
+        return session

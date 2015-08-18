@@ -40,12 +40,14 @@ class TestCQL(UpgradeTester):
         """)
 
         for is_upgraded, cursor in self.do_upgrade(cursor):
-            debug("Querying %s node" % ("upgraded" if is_upgraded else "old",))
+            debug("Querying " + "upgraded" if is_upgraded else "old" + " node")
             cursor.execute("TRUNCATE users")
 
             # Inserts
-            cursor.execute("INSERT INTO users (userid, firstname, lastname, age) VALUES (550e8400-e29b-41d4-a716-446655440000, 'Frodo', 'Baggins', 32)")
-            cursor.execute("UPDATE users SET firstname = 'Samwise', lastname = 'Gamgee', age = 33 WHERE userid = f47ac10b-58cc-4372-a567-0e02b2c3d479")
+            cursor.execute("INSERT INTO users (userid, firstname, lastname, age) "
+                           "VALUES (550e8400-e29b-41d4-a716-446655440000, 'Frodo', 'Baggins', 32)")
+            cursor.execute("UPDATE users SET firstname = 'Samwise', lastname = 'Gamgee', age = 33 "
+                           "WHERE userid = f47ac10b-58cc-4372-a567-0e02b2c3d479")
 
             # Queries
             res = cursor.execute("SELECT firstname, lastname FROM users WHERE userid = 550e8400-e29b-41d4-a716-446655440000")
@@ -76,7 +78,7 @@ class TestCQL(UpgradeTester):
                 [UUID('550e8400-e29b-41d4-a716-446655440000'), 36, None, None],
             ], res
 
-    def large_collection_errors(self):
+    def large_collection_errors_test(self):
         """ For large collections, make sure that we are printing warnings """
 
         # We only warn with protocol 2
@@ -2819,7 +2821,10 @@ class TestCQL(UpgradeTester):
             res = cursor.execute("SELECT i, blobAsText(b) FROM test WHERE k = 0")
             assert rows_to_list(res) == [[3, 'foobar']], res
 
-    def bug_5376(self):
+    def bug_5376_test(self):
+        """
+        @jira_ticket CASSANDRA-5376
+        """
         cursor = self.prepare()
 
         cursor.execute("""
