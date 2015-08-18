@@ -23,35 +23,8 @@ from thrift_bindings.v22.ttypes import (CfDef, Column, ColumnOrSuperColumn,
 from thrift_tests import get_thrift_client
 from tools import require, rows_to_list, since
 
-
-@since('1.0.x', max_version='2.0.x')
-@canReuseCluster
-class TestCQL(Tester):
-
-    def prepare(self, ordered=False, create_keyspace=True, use_cache=False, nodes=1, rf=1, protocol_version=None, **kwargs):
-        cluster = self.cluster
-
-        if (ordered):
-            cluster.set_partitioner("org.apache.cassandra.dht.ByteOrderedPartitioner")
-
-        if (use_cache):
-            cluster.set_configuration_options(values={'row_cache_size_in_mb': 100})
-
-        start_rpc = kwargs.pop('start_rpc', False)
-        if start_rpc:
-            cluster.set_configuration_options(values={'start_rpc': True})
-
-        if not cluster.nodelist():
-            cluster.populate(nodes).start()
-        node1 = cluster.nodelist()[0]
-        time.sleep(0.2)
-
-        session = self.patient_cql_connection(node1, protocol_version=protocol_version)
-        if create_keyspace:
-            if self._preserve_cluster:
-                session.execute("DROP KEYSPACE IF EXISTS ks")
-            self.create_ks(session, 'ks', rf)
-        return session
+class _CQLTests(Tester):
+    __test__ = False
 
     def static_cf_test(self):
         """
@@ -4523,3 +4496,39 @@ class TestCQL(Tester):
             except Exception as e:
                 self.assertIsInstance(e, SyntaxException)
                 self.assertNotIn('NullPointerException', str(e))
+
+
+@canReuseCluster
+@since('1.0.x', max_version='2.0.x')
+class TestCQLPre21(_CQLTests):
+    """
+    This class runs the tests from the mixin above, but only on Cassandra
+    versions before 2.1. In 2.1+, these tests (single-node CQL tests) are
+    covered by unit tests. See CASSANDRA-9160 for more information.
+    """
+    __test__ = True
+
+    def prepare(self, ordered=False, create_keyspace=True, use_cache=False, nodes=1, rf=1, protocol_version=None, **kwargs):
+        cluster = self.cluster
+
+        if (ordered):
+            cluster.set_partitioner("org.apache.cassandra.dht.ByteOrderedPartitioner")
+
+        if (use_cache):
+            cluster.set_configuration_options(values={'row_cache_size_in_mb': 100})
+
+        start_rpc = kwargs.pop('start_rpc', False)
+        if start_rpc:
+            cluster.set_configuration_options(values={'start_rpc': True})
+
+        if not cluster.nodelist():
+            cluster.populate(nodes).start()
+        node1 = cluster.nodelist()[0]
+        time.sleep(0.2)
+
+        session = self.patient_cql_connection(node1, protocol_version=protocol_version)
+        if create_keyspace:
+            if self._preserve_cluster:
+                session.execute("DROP KEYSPACE IF EXISTS ks")
+            self.create_ks(session, 'ks', rf)
+        return session
