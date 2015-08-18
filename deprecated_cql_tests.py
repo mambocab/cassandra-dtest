@@ -29,6 +29,9 @@ from upgrade_tests.upgrade_base import UpgradeTester
 class _CQLTests(Tester):
     __test__ = False
 
+    def prepare(*args, **kwargs):
+        raise NotImplementedError
+
     def static_cf_test(self):
         """
         Test static CF syntax.
