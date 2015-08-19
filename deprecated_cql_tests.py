@@ -4595,9 +4595,8 @@ class TestCQLUpgrade(_CQLTests):
 
     def prepare_for_query(self, session):
         """
-        Upgrades the first node in the cluster and returns a list of
-        (is_upgraded, Session) tuples.  If `is_upgraded` is true, the
-        Session is connected to the upgraded node.
+        Upgrades the first node.  If `is_upgraded` is true, the Session is
+        connected to the upgraded node.
         """
         session.cluster.shutdown()
         node1 = self.cluster.nodelist()[0]
