@@ -39,7 +39,8 @@ class TestCQL(UpgradeTester):
             );
         """)
 
-        for is_upgraded, cursor in self.do_upgrade(cursor):
+        self.prepare_for_query(cursor)
+        for is_upgraded, cursor in self.get_session_per_node():
             debug("Querying %s node" % ("upgraded" if is_upgraded else "old",))
             cursor.execute("TRUNCATE users")
 
