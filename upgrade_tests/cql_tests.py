@@ -25,58 +25,6 @@ from upgrade_base import UpgradeTester
 
 class TestCQL(UpgradeTester):
 
-    def static_cf_test(self):
-        """ Test static CF syntax """
-        cursor = self.prepare()
-
-        # Create
-        cursor.execute("""
-            CREATE TABLE users (
-                userid uuid PRIMARY KEY,
-                firstname text,
-                lastname text,
-                age int
-            );
-        """)
-
-        self.prepare_for_query(cursor)
-        for is_upgraded, cursor in self.get_session_per_node():
-            debug("Querying %s node" % ("upgraded" if is_upgraded else "old",))
-            cursor.execute("TRUNCATE users")
-
-            # Inserts
-            cursor.execute("INSERT INTO users (userid, firstname, lastname, age) VALUES (550e8400-e29b-41d4-a716-446655440000, 'Frodo', 'Baggins', 32)")
-            cursor.execute("UPDATE users SET firstname = 'Samwise', lastname = 'Gamgee', age = 33 WHERE userid = f47ac10b-58cc-4372-a567-0e02b2c3d479")
-
-            # Queries
-            res = cursor.execute("SELECT firstname, lastname FROM users WHERE userid = 550e8400-e29b-41d4-a716-446655440000")
-            assert rows_to_list(res) == [['Frodo', 'Baggins']], res
-
-            res = cursor.execute("SELECT * FROM users WHERE userid = 550e8400-e29b-41d4-a716-446655440000")
-            assert rows_to_list(res) == [[UUID('550e8400-e29b-41d4-a716-446655440000'), 32, 'Frodo', 'Baggins']], res
-
-            res = cursor.execute("SELECT * FROM users")
-            assert rows_to_list(res) == [
-                [UUID('f47ac10b-58cc-4372-a567-0e02b2c3d479'), 33, 'Samwise', 'Gamgee'],
-                [UUID('550e8400-e29b-41d4-a716-446655440000'), 32, 'Frodo', 'Baggins'],
-            ], res
-
-            # Test batch inserts
-            cursor.execute("""
-                BEGIN BATCH
-                    INSERT INTO users (userid, age) VALUES (550e8400-e29b-41d4-a716-446655440000, 36)
-                    UPDATE users SET age = 37 WHERE userid = f47ac10b-58cc-4372-a567-0e02b2c3d479
-                    DELETE firstname, lastname FROM users WHERE userid = 550e8400-e29b-41d4-a716-446655440000
-                    DELETE firstname, lastname FROM users WHERE userid = f47ac10b-58cc-4372-a567-0e02b2c3d479
-                APPLY BATCH
-            """)
-
-            res = cursor.execute("SELECT * FROM users")
-            assert rows_to_list(res) == [
-                [UUID('f47ac10b-58cc-4372-a567-0e02b2c3d479'), 37, None, None],
-                [UUID('550e8400-e29b-41d4-a716-446655440000'), 36, None, None],
-            ], res
-
     def large_collection_errors(self):
         """ For large collections, make sure that we are printing warnings """
 

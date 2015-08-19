@@ -16,7 +16,7 @@ from cassandra.query import SimpleStatement
 from cassandra.util import sortedset
 
 from assertions import assert_all, assert_invalid, assert_none, assert_one
-from dtest import DEBUG, Tester, canReuseCluster, freshCluster
+from dtest import DEBUG, Tester, canReuseCluster, debug, freshCluster
 from thrift_bindings.v22.ttypes import \
     ConsistencyLevel as ThriftConsistencyLevel
 from thrift_bindings.v22.ttypes import (CfDef, Column, ColumnOrSuperColumn,
@@ -44,38 +44,43 @@ class _CQLTests(Tester):
             );
         """)
 
-        # Inserts
-        session.execute("INSERT INTO users (userid, firstname, lastname, age) VALUES (550e8400-e29b-41d4-a716-446655440000, 'Frodo', 'Baggins', 32)")
-        session.execute("UPDATE users SET firstname = 'Samwise', lastname = 'Gamgee', age = 33 WHERE userid = f47ac10b-58cc-4372-a567-0e02b2c3d479")
+        self.prepare_for_query(session)
+        for is_upgraded, cursor in self.get_session_per_node():
+            debug("Querying %s node" % ("upgraded" if is_upgraded else "old",))
+            cursor.execute("TRUNCATE users")
 
-        # Queries
-        res = session.execute("SELECT firstname, lastname FROM users WHERE userid = 550e8400-e29b-41d4-a716-446655440000")
-        assert rows_to_list(res) == [['Frodo', 'Baggins']], res
+            # Inserts
+            session.execute("INSERT INTO users (userid, firstname, lastname, age) VALUES (550e8400-e29b-41d4-a716-446655440000, 'Frodo', 'Baggins', 32)")
+            session.execute("UPDATE users SET firstname = 'Samwise', lastname = 'Gamgee', age = 33 WHERE userid = f47ac10b-58cc-4372-a567-0e02b2c3d479")
 
-        res = session.execute("SELECT * FROM users WHERE userid = 550e8400-e29b-41d4-a716-446655440000")
-        assert rows_to_list(res) == [[UUID('550e8400-e29b-41d4-a716-446655440000'), 32, 'Frodo', 'Baggins']], res
+            # Queries
+            res = session.execute("SELECT firstname, lastname FROM users WHERE userid = 550e8400-e29b-41d4-a716-446655440000")
+            assert rows_to_list(res) == [['Frodo', 'Baggins']], res
 
-        res = session.execute("SELECT * FROM users")
-        assert rows_to_list(res) == [
-            [UUID('f47ac10b-58cc-4372-a567-0e02b2c3d479'), 33, 'Samwise', 'Gamgee'],
-            [UUID('550e8400-e29b-41d4-a716-446655440000'), 32, 'Frodo', 'Baggins'],
-        ], res
+            res = session.execute("SELECT * FROM users WHERE userid = 550e8400-e29b-41d4-a716-446655440000")
+            assert rows_to_list(res) == [[UUID('550e8400-e29b-41d4-a716-446655440000'), 32, 'Frodo', 'Baggins']], res
 
-        # Test batch inserts
-        session.execute("""
-            BEGIN BATCH
-                INSERT INTO users (userid, age) VALUES (550e8400-e29b-41d4-a716-446655440000, 36)
-                UPDATE users SET age = 37 WHERE userid = f47ac10b-58cc-4372-a567-0e02b2c3d479
-                DELETE firstname, lastname FROM users WHERE userid = 550e8400-e29b-41d4-a716-446655440000
-                DELETE firstname, lastname FROM users WHERE userid = f47ac10b-58cc-4372-a567-0e02b2c3d479
-            APPLY BATCH
-        """)
+            res = session.execute("SELECT * FROM users")
+            assert rows_to_list(res) == [
+                [UUID('f47ac10b-58cc-4372-a567-0e02b2c3d479'), 33, 'Samwise', 'Gamgee'],
+                [UUID('550e8400-e29b-41d4-a716-446655440000'), 32, 'Frodo', 'Baggins'],
+            ], res
 
-        res = session.execute("SELECT * FROM users")
-        assert rows_to_list(res) == [
-            [UUID('f47ac10b-58cc-4372-a567-0e02b2c3d479'), 37, None, None],
-            [UUID('550e8400-e29b-41d4-a716-446655440000'), 36, None, None],
-        ], res
+           # Test batch inserts
+            session.execute("""
+                BEGIN BATCH
+                    INSERT INTO users (userid, age) VALUES (550e8400-e29b-41d4-a716-446655440000, 36)
+                    UPDATE users SET age = 37 WHERE userid = f47ac10b-58cc-4372-a567-0e02b2c3d479
+                    DELETE firstname, lastname FROM users WHERE userid = 550e8400-e29b-41d4-a716-446655440000
+                    DELETE firstname, lastname FROM users WHERE userid = f47ac10b-58cc-4372-a567-0e02b2c3d479
+                APPLY BATCH
+            """)
+
+            res = session.execute("SELECT * FROM users")
+            assert rows_to_list(res) == [
+                [UUID('f47ac10b-58cc-4372-a567-0e02b2c3d479'), 37, None, None],
+                [UUID('550e8400-e29b-41d4-a716-446655440000'), 36, None, None],
+            ], res
 
     def large_collection_errors(self):
         """
@@ -4616,13 +4621,13 @@ class TestCQLUpgrade(_CQLTests):
 
         # start them again
         if UPGRADE_MODE != "none":
-            node1.set_install_dir(version=self.original_install_dir)
+            node1.set_install_dir(install_dir=self.original_install_dir)
             node1.set_log_level("DEBUG" if DEBUG else "INFO")
             node1.set_configuration_options(values={'internode_compression': 'none'})
             node1.start(wait_for_binary_proto=True)
 
         if UPGRADE_MODE == "all":
-            node2.set_install_dir(version=self.original_install_dir)
+            node2.set_install_dir(install_dir=self.original_install_dir)
             node2.set_log_level("DEBUG" if DEBUG else "INFO")
             node2.set_configuration_options(values={'internode_compression': 'none'})
             node2.start(wait_for_binary_proto=True)
