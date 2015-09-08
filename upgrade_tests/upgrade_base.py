@@ -22,6 +22,13 @@ UPGRADE_MODE = os.environ.get('UPGRADE_MODE', 'normal').lower()
 
 
 class UpgradeTester(Tester):
+    """
+    When run in 'normal' upgrade mode without specifying any version to run,
+    this will test different upgrade paths depending on what version of C* you
+    are testing. When run on 2.1 or 2.2, this will test the upgrade to 3.0.
+    When run on 3.0, this will test the upgrade path to trunk. When run on
+    versions above 3.0, this will test the upgrade path from 2.2 to HEAD.
+    """
 
     def prepare(self, ordered=False, create_keyspace=True, use_cache=False, nodes=2, rf=1, protocol_version=None, **kwargs):
         assert nodes >= 2, "backwards compatibility tests require at least two nodes"
@@ -44,11 +51,16 @@ class UpgradeTester(Tester):
         cluster.set_configuration_options(values={'internode_compression': 'none'})
         if not cluster.nodelist():
             cluster.populate(nodes)
-            self.original_install_dir = cluster.nodelist()[0].get_install_dir()
+            node1 = cluster.nodelist()[0]
+            self.original_install_dir = node1.get_install_dir()
+            self.original_version = node1.version()
+            self.original_git_branch = cassandra_git_branch()
             if OLD_CASSANDRA_DIR:
                 cluster.set_install_dir(install_dir=OLD_CASSANDRA_DIR)
             else:
-                cluster.set_install_dir(version='git:cassandra-2.1')
+                # upgrade from 3.0 to current install dir if we're running > 3.0
+                if self.original_version > '3.0':
+                    cluster.set_install_dir(version='git:cassandra-3.0')
             cluster.start()
 
         node1 = cluster.nodelist()[0]
@@ -92,6 +104,12 @@ class UpgradeTester(Tester):
             node2.stop(gently=True)
             if is_win() and self.cluster.version() <= '2.2':
                 node2.mark_log_for_errors()
+
+        # choose version to upgrade to
+        if self.original_git_branch == 'trunk' or self.original_version >= '3.0':
+            new_branch = 'git:trunk'
+        else:
+            new_branch = 'git:cassandra-3.0'
 
         # start them again
         if UPGRADE_MODE != "none":
