@@ -1,8 +1,9 @@
 import os
 import time
 
-from ccmlib.common import is_win
-from dtest import DEBUG, Tester
+from ccmlib.common import get_version_from_build, is_win
+from dtest import DEBUG, Tester, debug
+from tools import cassandra_git_branch, since
 
 QUERY_UPGRADED = os.environ.get('QUERY_UPGRADED', 'true').lower() in ('yes', 'true')
 QUERY_OLD = os.environ.get('QUERY_OLD', 'true').lower() in ('yes', 'true')
@@ -54,15 +55,16 @@ class UpgradeTester(Tester):
             cluster.populate(nodes)
             node1 = cluster.nodelist()[0]
             self.original_install_dir = node1.get_install_dir()
-            self.original_version = node1.version()
             self.original_git_branch = cassandra_git_branch()
+            self.original_version = get_version_from_build(node_path=node1.get_path())
             if OLD_CASSANDRA_DIR:
                 cluster.set_install_dir(install_dir=OLD_CASSANDRA_DIR)
             else:
-                # upgrade from 3.0 to current install dir if we're running > 3.0
-                if self.original_version > '3.0':
-                    cluster.set_install_dir(version='git:cassandra-3.0')
-            cluster.start()
+                # upgrade from 2.2 to current install dir if we're running from trunk
+                if self.original_git_branch == 'trunk':
+                    cluster.set_install_dir(version='git:cassandra-2.2')
+            cluster.start(wait_for_binary_proto=True)
+            debug('starting from {}'.format(get_version_from_build(node1.get_install_dir())))
 
         node1 = cluster.nodelist()[0]
         time.sleep(0.2)
@@ -112,15 +114,17 @@ class UpgradeTester(Tester):
         else:
             new_branch = 'git:cassandra-3.0'
 
+        debug('upgrading to {}'.format(new_branch))
+
         # start them again
         if UPGRADE_MODE != "none":
-            node1.set_install_dir(install_dir=self.original_install_dir)
+            node1.set_install_dir(version=new_branch)
             node1.set_log_level("DEBUG" if DEBUG else "INFO")
             node1.set_configuration_options(values={'internode_compression': 'none'})
             node1.start(wait_for_binary_proto=True)
 
         if UPGRADE_MODE == "all":
-            node2.set_install_dir(install_dir=self.original_install_dir)
+            node2.set_install_dir(version=new_branch)
             node2.set_log_level("DEBUG" if DEBUG else "INFO")
             node2.set_configuration_options(values={'internode_compression': 'none'})
             node2.start(wait_for_binary_proto=True)
