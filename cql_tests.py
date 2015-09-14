@@ -535,3 +535,20 @@ class AbortedQueriesTester(CQLTester):
         assert_unavailable(lambda c: debug(c.execute(statement)), session)
 
         node2.watch_log_for("'SELECT \* FROM ks.mv WHERE col = 50 (.*)' timed out 1 time", from_mark=mark, timeout=60)
+
+
+class StaticColumnDeleteTest(CQLTester):
+    def delete_with_conditions_on_static_columns(self):
+        self.cluster.populate(1)
+        self.cluster.start(wait_for_binary_proto=True)
+
+        node = self.cluster.nodelist()[0]
+
+        session = self.patient_cql_connection(node)
+        session.execute("CREATE KEYSPACE ks WITH replication = { 'class':'SimpleStrategy', 'replication_factor':1} AND DURABLE_WRITES = true")
+        session.execute('USE ks')
+
+        session.execute('CREATE TABLE static_table(id int, stat int static, ord int, val text, primary key(id,ord))')
+        session.execute("INSERT INTO static_table (id, stat, ord, val) VALUES (1, 1, 1, '1')")
+        # session.execute("DELETE FROM static_table where id=1 and ord=1 if stat != 1")
+        node.run_cqlsh("DELETE FROM static_table where id=1 and ord=1 if stat != 1")
