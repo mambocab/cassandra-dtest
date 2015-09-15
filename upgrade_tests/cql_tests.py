@@ -4142,11 +4142,19 @@ class TestCQL(UpgradeTester):
             assert_all(cursor, "SELECT v FROM test WHERE k=0 AND c1 = 0 AND c2 IN (2, 0)", [[0], [2]])
             assert_all(cursor, "SELECT v FROM test WHERE k=0 AND c1 = 0 AND c2 IN (2, 0) ORDER BY c1 ASC", [[0], [2]])
             assert_all(cursor, "SELECT v FROM test WHERE k=0 AND c1 = 0 AND c2 IN (2, 0) ORDER BY c1 DESC", [[2], [0]])
+
+            node_versions = [n.get_cassandra_version() for n in cluster.nodelist()]
+            # if there are more than two versions running in this cluster, we can't determine which
+            # is running on the given node just by looking at is_upgraded.
+            self.assertLessEqual(len(node_versions), 2)
             if is_upgraded:
-                # the coordinator is the upgraded 2.2+ node
+                current_node_version = max(node_versions)
+            else:
+                current_node_version = min(node_versions)
+
+            if current_node_version >= '2.2':
                 assert_all(cursor, "SELECT v FROM test WHERE k IN (1, 0)", [[0], [1], [2], [3], [4], [5]])
             else:
-                # the coordinator is the non-upgraded 2.1 node
                 assert_all(cursor, "SELECT v FROM test WHERE k IN (1, 0)", [[3], [4], [5], [0], [1], [2]])
             assert_all(cursor, "SELECT v FROM test WHERE k IN (1, 0) ORDER BY c1 ASC", [[0], [1], [2], [3], [4], [5]])
 
