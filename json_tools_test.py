@@ -99,3 +99,46 @@ class TestJson(Tester):
                               [[u'frodo', 1985, u'male', u'pass@', u'CA'],
                                [u'sam', 1980, u'male', u'@pass', u'NY'],
                                [u'gandalf', 1955, u'male', u'p@$$', u'WA']])
+
+    def test_json2sstable_round_trip(self):
+        self.cluster.populate(1).start()
+        node = self.cluster.nodelist()[0]
+        session = self.patient_cql_connection(node)
+
+        session.execute("CREATE KEYSPACE ks with replication = { 'class' : 'SimpleStrategy', 'replication_factor' : 1 };")
+        session.execute("""CREATE TABLE ks.tab (
+                               col1 text,
+                               col2 text,
+                               col3 text,
+                               col4 text,
+                               PRIMARY KEY ((col1, col2), col3)
+                           ) WITH CLUSTERING ORDER BY (col3 ASC)
+                        """)
+        session.execute("INSERT INTO ks.tab (col1, col2, col3, col4) VALUES ('a', 'b', 'c', 'd');")
+        node.flush()
+
+        json_path = tempfile.mktemp(suffix='.schema.json')
+        with open(json_path, 'w') as f:
+            node.run_sstable2json(f)
+        with open(json_path, 'r') as f:
+            debug('lolololololol')
+            debug(f.read())
+
+        with open(json_path, 'r') as f:
+            node.run_json2sstable(f, 'ks', 'tab')
+
+        os.remove(json_path)
+
+        # json_string = '''[
+        #                    {"key": "This is col1:This is col2",
+        #                     "cells": [["This is col3:", "", 1443217787319002],
+        #                               ["This is col3:"col4","This is col4",1443217787319002]]}
+        #                  ]
+        #               '''
+
+        # self.json_source = tempfile.NamedTemporaryFile(delete=False)
+        # self.json_source.write(json_string)
+
+        # node.run_json2sstable(self.json_source, 'ks', 'tab')
+
+        # os.remove(self.json_source.name)
