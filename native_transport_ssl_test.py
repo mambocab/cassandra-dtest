@@ -2,6 +2,7 @@ import os
 
 from cassandra import ConsistencyLevel
 from cassandra.cluster import NoHostAvailable
+from nose.tools import assert_greater
 
 from ccmlib.common import is_win
 from dtest import Tester
@@ -20,17 +21,19 @@ class NativeTransportSSL(Tester):
         cluster = self._populateCluster(enableSSL=True)
         node1 = cluster.nodelist()[0]
 
-        # try to connect without ssl options
-        try:
-            cluster.start()
-            session = self.patient_cql_connection(node1)
-            assert False, "Should not be able to connect to SSL socket without SSL enabled client"
+        cluster.start()
+
+        try:  # hack around assertRaise's lack of msg parameter
+            # try to connect without ssl options
+            self.patient_cql_connection(node1)
+            self.fail('Should not be able to connect to SSL socket without SSL enabled client')
         except NoHostAvailable:
             pass
 
         if not is_win():
-            assert len(node1.grep_log("^io.netty.handler.ssl.NotSslRecordException.*")) > 0, \
-                "Missing SSL handshake exception while connecting with non-SSL enabled client"
+            n_exception_lines = len(node1.grep_log('^io.netty.handler.ssl.NotSslRecordException.*'))
+            assert_greater(n_exception_lines, 0,
+                           msg='Missing SSL handshake exception while connecting with non-SSL enabled client')
 
         # enabled ssl on the client and try again (this should work)
         session = self.patient_cql_connection(node1, ssl_opts={'ca_certs': os.path.join(self.test_path, 'ccm_node.cer')})
@@ -44,10 +47,10 @@ class NativeTransportSSL(Tester):
         cluster = self._populateCluster(nativePort=9567)
         node1 = cluster.nodelist()[0]
 
-        try:
-            cluster.start()
-            session = self.patient_cql_connection(node1)
-            assert False, "Should not be able to connect to non-default port"
+        cluster.start()
+        try:  # hack around assertRaise's lack of msg parameter
+            self.patient_cql_connection(node1)
+            self.fail('Should not be able to connect to non-default port')
         except NoHostAvailable:
             pass
 
