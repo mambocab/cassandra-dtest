@@ -1,9 +1,11 @@
 import os
-from dtest import Tester
+
 from cassandra import ConsistencyLevel
 from cassandra.cluster import NoHostAvailable
-from tools import generate_ssl_stores, putget
+
 from ccmlib.common import is_win
+from dtest import Tester
+from tools import generate_ssl_stores, putget
 
 
 class NativeTransportSSL(Tester):
