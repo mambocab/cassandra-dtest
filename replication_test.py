@@ -242,15 +242,12 @@ class ReplicationTest(Tester):
             # Record the forwarder used for each INSERT:
             forwarders_used = forwarders_used.union(stats['forwarders'])
 
-            try:
-                # Make sure the correct nodes are replicas:
-                self.assertEqual(stats['replicas'], replicas_should_be)
-                # Make sure that each replica node was contacted and
-                # acknowledged the write:
-                self.assertEqual(stats['nodes_sent_write'], stats['nodes_responded_write'])
-            except AssertionError as e:
-                debug("Failed on key %s and token %s." % (key, token))
-                raise e
+            msg = 'Failed on key {key} and token {token}.'.format(key=key, token=token)
+            # Make sure the correct nodes are replicas:
+            self.assertEqual(stats['replicas'], replicas_should_be, msg=msg)
+            # Make sure that each replica node was contacted and
+            # acknowledged the write:
+            self.assertEqual(stats['nodes_sent_write'], stats['nodes_responded_write'], msg=msg)
 
         # Given a diverse enough keyset, each node in the second
         # datacenter should get a chance to be a forwarder:
