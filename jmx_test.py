@@ -26,33 +26,25 @@ class TestJMX(Tester):
         node1.stress(['write', 'n=15M', '-schema', 'replication(factor=3)', '-rate', 'threads=50'])
         node1.flush()
 
-        try:
-            # TODO the keyspace and table name are capitalized in 2.0
-            histogram = node1.nodetool("cfhistograms keyspace1 standard1", capture_output=True)
-            error_msg = "Unable to compute when histogram overflowed"
-            debug(histogram)
-            self.assertFalse(error_msg in histogram)
-            self.assertTrue("NaN" not in histogram)
-
-        except Exception as e:
-            self.fail("Cfhistograms command failed: " + str(e))
+        # TODO the keyspace and table name are capitalized in 2.0
+        histogram = node1.nodetool("cfhistograms keyspace1 standard1", capture_output=True)
+        error_msg = "Unable to compute when histogram overflowed"
+        debug(histogram)
+        self.assertFalse(error_msg in histogram)
+        self.assertTrue("NaN" not in histogram)
 
         session = self.patient_cql_connection(node1)
 
         session.execute("CREATE KEYSPACE test WITH REPLICATION = {'class':'SimpleStrategy', 'replication_factor':3}")
         session.execute("CREATE TABLE test.tab(key int primary key, val int);")
 
-        try:
-            finalhistogram = node1.nodetool("cfhistograms test tab", capture_output=True)
-            debug(finalhistogram)
+        finalhistogram = node1.nodetool("cfhistograms test tab", capture_output=True)
+        debug(finalhistogram)
 
-            error_msg = "Unable to compute when histogram overflowed"
-            self.assertFalse(error_msg in finalhistogram)
-            correct_error_msg = "No SSTables exists, unable to calculate 'Partition Size' and 'Cell Count' percentiles"
-            self.assertTrue(correct_error_msg in finalhistogram[1])
-        except Exception as e:
-            debug(finalhistogram)
-            self.fail("Cfhistograms command failed: " + str(e))
+        error_msg = "Unable to compute when histogram overflowed"
+        self.assertFalse(error_msg in finalhistogram)
+        correct_error_msg = "No SSTables exists, unable to calculate 'Partition Size' and 'Cell Count' percentiles"
+        self.assertTrue(correct_error_msg in finalhistogram[1])
 
     @since('2.1')
     def netstats_test(self):
