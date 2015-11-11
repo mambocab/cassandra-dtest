@@ -26,12 +26,12 @@ def csv_rows(filename, delimiter=None):
 
 
 def strip_timezone_if_time_string(s):
+    time_string_no_tz = s[:19]
     try:
-        time_string_no_tz = s[:19]
         time_struct = time.strptime(time_string_no_tz, '%Y-%m-%d %H:%M:%S')
         dt_no_timezone = datetime.datetime(*time_struct[:6])
         return dt_no_timezone.strftime('%Y-%m-%d %H:%M:%S')
-    except:
+    except (ValueError, TypeError):
         return s
 
 
