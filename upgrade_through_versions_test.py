@@ -552,13 +552,18 @@ class TestUpgradeThroughVersions(Tester):
             raise RuntimeError(message)
 
     def _terminate_subprocs(self):
+        exception_during_termination = False
         for s in self.subprocs:
             if s.is_alive():
                 try:
                     psutil.Process(s.pid).kill()  # with fire damnit
-                except Exception:
-                    debug("Error terminating subprocess. There could be a lingering process.")
-                    pass
+                except Exception as e:
+                    exception_during_termination = True
+                    debug("Error terminating subprocess. There could be a lingering process. "
+                          "Exception: \n{e}".format(e))
+
+        self.assertFalse(exception_during_termination,
+                         'Exceptions raised while terminating subprocesses.')
 
     def upgrade_to_version(self, tag, partial=False, nodes=None):
         """

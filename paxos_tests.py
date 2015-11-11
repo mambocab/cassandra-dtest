@@ -138,7 +138,7 @@ class TestPaxos(Tester):
                             # This means a timeout: just retry, if it happens that our update was indeed persisted,
                             # we'll figure it out on the next run.
                             self.retries = self.retries + 1
-                        except Exception as e:
+                        except Exception as e:  # except Exception is ok here because we're not in the main process
                             if verbose:
                                 print "[%3d] ERROR: %s" % (self.wid, str(e))
                             self.errors = self.errors + 1

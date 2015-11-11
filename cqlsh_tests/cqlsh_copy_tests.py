@@ -239,7 +239,7 @@ class CqlshCopyTest(Tester):
         self.maxDiff = None
         try:
             self.assertItemsEqual(processed_csv, processed_results)
-        except Exception as e:
+        except AssertionError as e:
             if len(processed_csv) != len(processed_results):
                 warning("Different # of entries. CSV: " + str(len(processed_csv)) +
                         " vs results: " + str(len(processed_results)))

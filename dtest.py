@@ -151,7 +151,7 @@ class Runner(threading.Thread):
                 return
             try:
                 self.__func(i)
-            except Exception as e:
+            except Exception as e:  # except Exception is ok here because we're not in the main process
                 self.__error = e
                 return
             i = i + 1
@@ -543,7 +543,7 @@ class Tester(TestCase):
         for runner in self.runners:
             try:
                 runner.stop()
-            except:
+            except StandrdError:
                 pass
 
         failed = sys.exc_info() != (None, None, None)

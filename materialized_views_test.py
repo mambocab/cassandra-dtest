@@ -372,7 +372,6 @@ class TestMaterializedViews(Tester):
 
         self._add_dc_after_mv_test({'dc1': 1, 'dc2': 1})
 
-
     def add_node_after_mv_test(self):
         """Test that materialized views work as expected when adding a node."""
 
@@ -1230,7 +1229,7 @@ def thread_session(ip, queue, start, end, rows):
         for i in range(start, end):
             ret = execute_query(session, select_gi, i)
             queue.put_nowait(ret)
-    except Exception as e:
+    except StandardError as e:
         print str(e)
         queue.close()
 
