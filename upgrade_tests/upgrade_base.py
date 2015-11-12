@@ -57,7 +57,7 @@ def get_default_upgrade_path(job_version, cdir=None):
     elif '3.0' <= job_version < '3.1':
         try:
             branch = cassandra_git_branch(cdir=cdir)
-        except:
+        except StandardError:
             branch = None
         start_version = ('binary:3.0.0-rc1'
                          if branch == 'trunk'
@@ -127,7 +127,7 @@ class UpgradeTester(Tester):
             elif self.upgrade_path.starting_version:
                 try:
                     cluster.set_install_dir(version=self.upgrade_path.starting_version)
-                except:
+                except Exception:
                     if self.upgrade_path.starting_version.startswith('binary'):
                         debug('Exception while downloading {}; falling back to source'.format(
                             self.upgrade_path.starting_version))
