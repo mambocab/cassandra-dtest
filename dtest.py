@@ -398,7 +398,25 @@ class Tester(TestCase):
         cluster = PyCluster([node_ip], auth_provider=auth_provider, compression=compression,
                             protocol_version=protocol_version, load_balancing_policy=load_balancing_policy, default_retry_policy=FlakyRetryPolicy(),
                             port=port, ssl_options=ssl_opts, connect_timeout=10)
-        session = cluster.connect()
+        try:
+            session = cluster.connect()
+        except NoHostAvailable as e:
+            if not is_win():
+                netstat_cmd = ['netstat', '-tnlp']
+                debug('Cannot connect to Cassandra. Attempting to debug '
+                      'with with dump from {}'.format(netstat_cmd))
+                netstat = subprocess.Popen(netstat_cmd,
+                                           stdout=subprocess.PIPE,
+                                           stderr=subprocess.PIPE)
+                out, err = netstat.communicate()
+                debug('{} stdout:'.format(netstat_cmd[0]))
+                debug(str(out) + '\n')
+                debug('{} stderr:'.format(netstat_cmd[0]))
+                debug(str(err) + '\n')
+        except:  # it's ok if this debugging code fails...
+            pass
+        finally:  # ... as long as we always reraise the original exception
+            raise e
 
         # temporarily increase client-side timeout to 1m to determine
         # if the cluster is simply responding slowly to requests
