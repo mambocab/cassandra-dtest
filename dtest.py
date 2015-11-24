@@ -400,13 +400,10 @@ class Tester(TestCase):
                             port=port, ssl_options=ssl_opts, connect_timeout=10)
         try:
             session = cluster.connect()
-        except NoHostAvailable as e:
+        except NoHostAvailable:
             if not is_win():
                 debug(netstat_debug())
-        except:  # it's ok if this debugging code fails...
-            pass
-        finally:  # ... as long as we always reraise the original exception
-            raise e
+            raise
 
         # temporarily increase client-side timeout to 1m to determine
         # if the cluster is simply responding slowly to requests
