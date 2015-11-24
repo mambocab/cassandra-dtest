@@ -402,17 +402,7 @@ class Tester(TestCase):
             session = cluster.connect()
         except NoHostAvailable as e:
             if not is_win():
-                netstat_cmd = ['netstat', '-tnlp']
-                debug('Cannot connect to Cassandra. Attempting to debug '
-                      'with with dump from {}'.format(netstat_cmd))
-                netstat = subprocess.Popen(netstat_cmd,
-                                           stdout=subprocess.PIPE,
-                                           stderr=subprocess.PIPE)
-                out, err = netstat.communicate()
-                debug('{} stdout:'.format(netstat_cmd[0]))
-                debug(str(out) + '\n')
-                debug('{} stderr:'.format(netstat_cmd[0]))
-                debug(str(err) + '\n')
+                debug(netstat_debug())
         except:  # it's ok if this debugging code fails...
             pass
         finally:  # ... as long as we always reraise the original exception
@@ -764,3 +754,17 @@ def run_scenarios(scenarios, handler, deferred_exceptions=tuple()):
 
     if errors:
         raise MultiError(errors, tracebacks)
+
+
+def netstat_debug():
+    netstat_cmd = ['netstat', '-tnlp']
+    debug('Cannot connect to Cassandra. Attempting to debug '
+          'with with dump from {}'.format(netstat_cmd))
+    netstat = subprocess.Popen(netstat_cmd,
+                               stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE)
+    out, err = netstat.communicate()
+    return ('{} stdout:\n'.format(netstat_cmd[0]) +
+            str(out) + '\n' +
+            '{} stderr:\n'.format(netstat_cmd[0]) +
+            str(err) + '\n')
