@@ -401,6 +401,8 @@ class Tester(TestCase):
         if not is_win():
             for node in self.cluster.nodelist():
                 debug(jstack(node.pid))
+            debug(os.linesep.join(top().splitlines()[:20]))
+            debug(df())
         session = cluster.connect()
 
         # temporarily increase client-side timeout to 1m to determine
@@ -751,17 +753,29 @@ def run_scenarios(scenarios, handler, deferred_exceptions=tuple()):
         raise MultiError(errors, tracebacks)
 
 
+def debug_run(cmd):
+    p = subprocess.Popen(cmd,
+                         stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE)
+    out, err = p.communicate()
+    return ('{} stdout:\n'.format(cmd[0]) +
+            str(out) + '\n' +
+            '{} stderr:\n'.format(cmd[0]) +
+            str(err) + '\n')
+
+
 def jstack(pid):
     jstack_cmd = ['jstack',
                   '-J-d64',  # this is a 64-bit JVM
                   '-l',  # print information about lock ownership
                   # '-m',  # mixed mode -- print C/C++ stack frames too
                   str(pid)]
-    jstack = subprocess.Popen(jstack_cmd,
-                               stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE)
-    out, err = jstack.communicate()
-    return ('{} stdout:\n'.format(jstack_cmd[0]) +
-            str(out) + '\n' +
-            '{} stderr:\n'.format(jstack_cmd[0]) +
-            str(err) + '\n')
+    return debug_run(jstack_cmd)
+
+
+def top():
+    return debug_run(['top', '-n1', '-b'])
+
+
+def df():
+    return debug_run(['df', '/'])
