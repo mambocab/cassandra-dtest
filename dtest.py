@@ -399,7 +399,8 @@ class Tester(TestCase):
                             protocol_version=protocol_version, load_balancing_policy=load_balancing_policy, default_retry_policy=FlakyRetryPolicy(),
                             port=port, ssl_options=ssl_opts, connect_timeout=10)
         if not is_win():
-            debug(netstat_debug())
+            for node in self.cluster.nodelist():
+                debug(jstack(node.pid))
         session = cluster.connect()
 
         # temporarily increase client-side timeout to 1m to determine
@@ -750,15 +751,17 @@ def run_scenarios(scenarios, handler, deferred_exceptions=tuple()):
         raise MultiError(errors, tracebacks)
 
 
-def netstat_debug():
-    netstat_cmd = ['netstat', '-tnlp']
-    debug('Cannot connect to Cassandra. Attempting to debug '
-          'with with dump from {}'.format(netstat_cmd))
-    netstat = subprocess.Popen(netstat_cmd,
+def jstack(pid):
+    jstack_cmd = ['jstack',
+                  '-J-d64',  # this is a 64-bit JVM
+                  '-l',  # print information about lock ownership
+                  # '-m',  # mixed mode -- print C/C++ stack frames too
+                  str(pid)]
+    jstack = subprocess.Popen(jstack_cmd,
                                stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE)
-    out, err = netstat.communicate()
-    return ('{} stdout:\n'.format(netstat_cmd[0]) +
+    out, err = jstack.communicate()
+    return ('{} stdout:\n'.format(jstack_cmd[0]) +
             str(out) + '\n' +
-            '{} stderr:\n'.format(netstat_cmd[0]) +
+            '{} stderr:\n'.format(jstack_cmd[0]) +
             str(err) + '\n')
