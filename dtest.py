@@ -399,10 +399,13 @@ class Tester(TestCase):
                             protocol_version=protocol_version, load_balancing_policy=load_balancing_policy, default_retry_policy=FlakyRetryPolicy(),
                             port=port, ssl_options=ssl_opts, connect_timeout=10)
         if not is_win():
-            for node in self.cluster.nodelist():
-                debug(jstack(node.pid))
-            debug(os.linesep.join(top().splitlines()[:20]))
-            debug(df())
+            try:
+                for node in self.cluster.nodelist():
+                    debug(jstack(node.pid))
+                debug(os.linesep.join(top().splitlines()[:20]))
+                debug(df())
+            except OSError:
+                pass
         session = cluster.connect()
 
         # temporarily increase client-side timeout to 1m to determine
@@ -765,7 +768,8 @@ def debug_run(cmd):
 
 
 def jstack(pid):
-    jstack_cmd = ['jstack',
+    jstack_location = os.path.abspath(os.path.join(os.environ['JAVA_HOME'], 'bin', 'jstack'))
+    jstack_cmd = [jstack_location,
                   '-J-d64',  # this is a 64-bit JVM
                   '-l',  # print information about lock ownership
                   # '-m',  # mixed mode -- print C/C++ stack frames too
