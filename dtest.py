@@ -398,15 +398,17 @@ class Tester(TestCase):
         cluster = PyCluster([node_ip], auth_provider=auth_provider, compression=compression,
                             protocol_version=protocol_version, load_balancing_policy=load_balancing_policy, default_retry_policy=FlakyRetryPolicy(),
                             port=port, ssl_options=ssl_opts, connect_timeout=10)
-        if not is_win():
-            try:
-                for node in self.cluster.nodelist():
-                    debug(jstack(node.pid))
-                debug(os.linesep.join(top().splitlines()[:20]))
-                debug(df())
-            except OSError:
-                pass
-        session = cluster.connect()
+        try:
+            session = cluster.connect()
+        except NoHostAvailable:
+            if not is_win():
+                try:
+                    for node in self.cluster.nodelist():
+                        debug(jstack(node.pid))
+                    debug(os.linesep.join(top().splitlines()[:20]))
+                    debug(df())
+                except OSError:
+                    pass
 
         # temporarily increase client-side timeout to 1m to determine
         # if the cluster is simply responding slowly to requests
