@@ -261,6 +261,13 @@ class SnitchConfigurationUpdateTest(Tester):
     """
     Test to repro CASSANDRA-10238, wherein changing snitch properties to change racks without a restart could violate RF contract.
     """
+
+    def __init__(self, *args, **kwargs):
+        Tester.__init__(self, *args, **kwargs)
+        self.ignore_log_patterns = ["Fatal exception during initialization",
+                                    "Cannot start node if snitch's rack(.*) differs from previous rack(.*)",
+                                    "Cannot update data center or rack"]
+
     def check_endpoint_count(self, ks, table, nodes, rf):
         """
         Check a dummy key expecting it to have replication factor as the sum of rf on all dcs.
@@ -484,3 +491,141 @@ class SnitchConfigurationUpdateTest(Tester):
 
         # nodes have joined racks, check endpoint counts again
         self.check_endpoint_count('testing', 'rf_test', cluster.nodelist(), rf)
+
+    def test_cannot_restart_with_different_rack(self):
+        """
+        @jira_ticket CASSANDRA-10242
+
+        Test that we cannot restart with a different rack if '-Dcassandra.ignore_rack=true' is not specified.
+        """
+        cluster = self.cluster
+        cluster.populate(1)
+        cluster.set_configuration_options(values={'endpoint_snitch': 'org.apache.cassandra.locator.{}'
+                                          .format('GossipingPropertyFileSnitch')})
+
+        node = cluster.nodelist()[0]
+
+        with open(os.path.join(node.get_conf_dir(), 'cassandra-rackdc.properties'), 'w') as topo_file:
+            for line in ["dc={}".format(node.data_center), "rack=rack1"]:
+                topo_file.write(line + os.linesep)
+
+        debug("Starting node {} with rack1".format(node.address()))
+        node.start(wait_for_binary_proto=True)
+
+        debug("Shutting down node {}".format(node.address()))
+        node.stop(wait_other_notice=True)
+
+        debug("Updating snitch file with rack2")
+        for i, node in enumerate(cluster.nodelist()):
+            with open(os.path.join(node.get_conf_dir(), 'cassandra-rackdc.properties'), 'w') as topo_file:
+                for line in ["dc={}".format(node.data_center), "rack=rack2"]:
+                    topo_file.write(line + os.linesep)
+
+        debug("Restarting node {} with rack2".format(node.address()))
+        mark = node.mark_log()
+        node.start()
+
+        # check node not running
+        debug("Waiting for error message in log file")
+
+        if cluster.version() >= '2.2':
+            node.watch_log_for("Cannot start node if snitch's rack(.*) differs from previous rack(.*)",
+                               from_mark=mark)
+        else:
+            node.watch_log_for("Fatal exception during initialization", from_mark=mark)
+
+    def test_failed_snitch_update_gossiping_property_file_snitch(self):
+        """
+        @jira_ticket CASSANDRA-10243
+
+        Test that we cannot change the rack of a live node with GossipingPropertyFileSnitch.
+        """
+        self._test_failed_snitch_update(nodes=[3],
+                                        snitch_class_name='GossipingPropertyFileSnitch',
+                                        snitch_config_file='cassandra-rackdc.properties',
+                                        snitch_lines_before=["dc=dc1", "rack=rack1"],
+                                        snitch_lines_after=["dc=dc1", "rack=rack2"],
+                                        racks=["rack1", "rack1", "rack1"],
+                                        error='')
+
+    def test_failed_snitch_update_property_file_snitch(self):
+        """
+        @jira_ticket CASSANDRA-10243
+
+        Test that we cannot change the rack of a live node with PropertyFileSnitch.
+        """
+        self._test_failed_snitch_update(nodes=[3],
+                                        snitch_class_name='PropertyFileSnitch',
+                                        snitch_config_file='cassandra-topology.properties',
+                                        snitch_lines_before=["default=dc1:rack1"],
+                                        snitch_lines_after=["default=dc1:rack2"],
+                                        racks=["rack1", "rack1", "rack1"],
+                                        error='Cannot update data center or rack')
+
+    @since('2.0', max_version='2.1.x')
+    def test_failed_snitch_update_yaml_file_snitch(self):
+        """
+        @jira_ticket CASSANDRA-10243
+
+        Test that we cannot change the rack of a live node with YamlFileNetworkTopologySnitch.
+        """
+        self._test_failed_snitch_update(nodes=[3],
+                                        snitch_class_name='YamlFileNetworkTopologySnitch',
+                                        snitch_config_file='cassandra-topology.yaml',
+                                        snitch_lines_before=["topology:",
+                                                             "  - dc_name: dc1",
+                                                             "    racks:",
+                                                             "    - rack_name: rack1",
+                                                             "      nodes:",
+                                                             "      - broadcast_address: 127.0.0.1",
+                                                             "      - broadcast_address: 127.0.0.2",
+                                                             "      - broadcast_address: 127.0.0.3"],
+                                        snitch_lines_after=["topology:",
+                                                            "  - dc_name: dc1",
+                                                            "    racks:",
+                                                            "    - rack_name: rack2",
+                                                            "      nodes:",
+                                                            "      - broadcast_address: 127.0.0.1",
+                                                            "      - broadcast_address: 127.0.0.2",
+                                                            "      - broadcast_address: 127.0.0.3"],
+                                        racks=["rack1", "rack1", "rack1"],
+                                        error='Cannot update data center or rack')
+
+    def _test_failed_snitch_update(self, nodes, snitch_class_name, snitch_config_file,
+                                   snitch_lines_before, snitch_lines_after, racks, error):
+        cluster = self.cluster
+        cluster.populate(nodes)
+        cluster.set_configuration_options(values={'endpoint_snitch': 'org.apache.cassandra.locator.{}'
+                                          .format(snitch_class_name)})
+
+        # start with initial snitch lines
+        for i, node in enumerate(cluster.nodelist()):
+            with open(os.path.join(node.get_conf_dir(), snitch_config_file), 'w') as topo_file:
+                for line in snitch_lines_before:
+                    topo_file.write(line + os.linesep)
+
+        cluster.start(wait_for_binary_proto=True)
+
+        # check racks are as specified
+        self.wait_for_nodes_on_racks(cluster.nodelist(), racks)
+
+        marks = [node.mark_log() for node in cluster.nodelist()]
+
+        debug("Updating snitch file")
+        for i, node in enumerate(cluster.nodelist()):
+            with open(os.path.join(node.get_conf_dir(), snitch_config_file), 'w') as topo_file:
+                for line in snitch_lines_after:
+                    topo_file.write(line + os.linesep)
+
+        # wait until the config is reloaded, the default check period is
+        # 5 seconds so we wait for 10 seconds to be sure
+        debug("Waiting 10 seconds to make sure snitch file is reloaded...")
+        time.sleep(10)
+
+        # check racks have not changed
+        self.wait_for_nodes_on_racks(cluster.nodelist(), racks)
+
+        # check error in log files if applicable
+        if error:
+            for node, mark in zip(cluster.nodelist(), marks):
+                node.watch_log_for(error, from_mark=mark)
