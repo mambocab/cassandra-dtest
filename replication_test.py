@@ -259,11 +259,9 @@ class SnitchConfigurationUpdateTest(Tester):
     Test to repro CASSANDRA-10238, wherein changing snitch properties to change racks without a restart could violate RF contract.
     """
 
-    def __init__(self, *args, **kwargs):
-        Tester.__init__(self, *args, **kwargs)
-        self.ignore_log_patterns = ["Fatal exception during initialization",
-                                    "Cannot start node if snitch's rack(.*) differs from previous rack(.*)",
-                                    "Cannot update data center or rack"]
+    ignore_log_patterns = ["Fatal exception during initialization",
+                           "Cannot start node if snitch's rack(.*) differs from previous rack(.*)",
+                           "Cannot update data center or rack"]
 
     def check_endpoint_count(self, ks, table, nodes, rf):
         """
