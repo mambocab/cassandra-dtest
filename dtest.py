@@ -405,6 +405,7 @@ class Tester(TestCase):
                 try:
                     for node in self.cluster.nodelist():
                         debug(jstack(node.pid))
+                    debug('cassandra PID: {}'.format(node.pid))
                     debug(os.linesep.join(top().splitlines()[:20]))
                     debug(df())
                 except OSError:
