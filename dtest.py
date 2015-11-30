@@ -400,7 +400,7 @@ class Tester(TestCase):
                             port=port, ssl_options=ssl_opts, connect_timeout=10)
         try:
             session = cluster.connect()
-        except NoHostAvailable:
+        except NoHostAvailable as e:
             if not is_win():
                 try:
                     for node in self.cluster.nodelist():
@@ -409,6 +409,7 @@ class Tester(TestCase):
                     debug(df())
                 except OSError:
                     pass
+            raise e
 
         # temporarily increase client-side timeout to 1m to determine
         # if the cluster is simply responding slowly to requests
