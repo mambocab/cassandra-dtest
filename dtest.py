@@ -404,8 +404,9 @@ class Tester(TestCase):
             if not is_win():
                 try:
                     for node in self.cluster.nodelist():
+                        debug('cassandra PID: {}'.format(node.pid))
                         debug(jstack(node.pid))
-                    debug('cassandra PID: {}'.format(node.pid))
+                        debug(jmap(node.pid))
                     debug(os.linesep.join(top().splitlines()[:20]))
                     debug(df())
                 except OSError:
@@ -779,6 +780,15 @@ def jstack(pid):
                   # '-m',  # mixed mode -- print C/C++ stack frames too
                   str(pid)]
     return debug_run(jstack_cmd)
+
+
+def jmap(pid):
+    jmap_location = os.path.abspath(os.path.join(os.environ['JAVA_HOME'], 'bin', 'jmap'))
+    jmap_cmd = [jmap_location,
+                '-J-d64',  # this is a 64-bit JVM
+                '-heap',  # print a heap summary
+                str(pid)]
+    return debug_run(jmap_cmd)
 
 
 def top():
