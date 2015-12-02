@@ -410,7 +410,7 @@ class Tester(TestCase):
                         debug('cassandra PID: {}'.format(node.pid))
                         debug(jstack(node.pid))
                         debug(jmap(node.pid))
-                    debug(os.linesep.join(top().splitlines()[:20]))
+                    debug(pidstat())
                     debug(df())
                 except OSError:
                     pass
@@ -804,3 +804,7 @@ def df():
 
 def netstat():
     return debug_run(['netstat', '-tnlp'])
+
+
+def pidstat():
+    return debug_run(['pidstat', '1', '5'])
