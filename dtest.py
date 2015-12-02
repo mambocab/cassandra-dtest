@@ -405,6 +405,7 @@ class Tester(TestCase):
         except NoHostAvailable as e:
             if not is_win():
                 try:
+                    netstat()
                     for node in self.cluster.nodelist():
                         debug('cassandra PID: {}'.format(node.pid))
                         debug(jstack(node.pid))
@@ -799,3 +800,7 @@ def top():
 
 def df():
     return debug_run(['df', '/'])
+
+
+def netstat():
+    return debug_run(['netstat', '-tnlp'])
