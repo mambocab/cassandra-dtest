@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -406,12 +407,15 @@ class Tester(TestCase):
             if not is_win():
                 try:
                     netstat()
-                    for node in self.cluster.nodelist():
-                        debug('cassandra PID: {}'.format(node.pid))
-                        debug(jstack(node.pid))
-                        debug(jmap(node.pid))
+                    debug('cassandra PID: {}'.format(node.pid))
+                    debug(jstack(node.pid))
+                    debug(jmap(node.pid))
                     debug(pidstat())
                     debug(df())
+                    s = socket.socket()
+                    s.connect(('127.0.0.1', node.pid))
+                    s.send('somegarbage')
+                    debug(s.recv(1024))
                 except OSError:
                     pass
             raise e
