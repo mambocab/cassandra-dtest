@@ -412,10 +412,14 @@ class Tester(TestCase):
                     debug(jmap(node.pid))
                     debug(pidstat())
                     debug(df())
+                    debug('attempting to connect to 127.0.0.1:{} via TCP'.format(port))
                     s = socket.socket()
-                    s.connect(('127.0.0.1', node.pid))
+                    s.connect(('127.0.0.1', port))
                     s.send('somegarbage')
-                    debug(s.recv(1024))
+                    ba = bytearray(2048)
+                    s.recv_into(ba, 1024)
+                    debug('recieved from socket:')
+                    debug(ba)
                 except OSError:
                     pass
             raise e
