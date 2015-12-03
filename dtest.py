@@ -419,7 +419,7 @@ class Tester(TestCase):
                     ba = bytearray(4096)
                     s.recv_into(ba, 4096)
                     debug('recieved from socket:')
-                    debug(ba.decode('ascii', errors='replace'))
+                    debug(ba.decode('utf-8', errors='replace'))
                 except OSError:
                     pass
             raise e
