@@ -416,7 +416,7 @@ class Tester(TestCase):
                     s = socket.socket()
                     s.connect(('127.0.0.1', port))
                     s.send('somegarbage')
-                    ba = bytearray(2048)
+                    ba = bytearray(4096)
                     s.recv_into(ba, 4096)
                     debug('recieved from socket:')
                     debug(ba.decode('utf8'))
