@@ -413,13 +413,16 @@ class Tester(TestCase):
                     debug(pidstat())
                     debug(df())
                     debug('attempting to connect to 127.0.0.1:{} via TCP'.format(port))
-                    s = socket.socket()
-                    s.connect(('127.0.0.1', port))
-                    s.send('somegarbage')
-                    ba = bytearray(4096)
-                    s.recv_into(ba, 4096)
-                    debug('recieved from socket:')
-                    debug(ba.decode('ascii', errors='replace'))
+                    try:
+                        s = socket.socket()
+                        s.connect(('127.0.0.1', port))
+                        s.send('somegarbage')
+                        ba = bytearray(4096)
+                        s.recv_into(ba, 4096)
+                        debug('recieved from socket:')
+                        debug(ba.decode('ascii', errors='replace'))
+                    except UnicodeEncodeError:
+                        debug("printing from the socket blew up, but that's ok")
                 except OSError:
                     pass
             raise e
