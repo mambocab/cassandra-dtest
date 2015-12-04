@@ -423,6 +423,12 @@ class Tester(TestCase):
                         debug(ba.decode('ascii', errors='replace'))
                     except UnicodeEncodeError:
                         debug("printing from the socket blew up, but that's ok")
+                    except socket.error as e:
+                        if e.errno == errno.ECONNREFUSED:
+                            debug('connection was refused:')
+                            debug(e)
+                        else:
+                            raise e
                 except OSError:
                     pass
             raise e
