@@ -406,7 +406,7 @@ class Tester(TestCase):
         except NoHostAvailable as e:
             if not is_win():
                 try:
-                    netstat()
+                    debug(netstat())
                     debug('cassandra PID: {}'.format(node.pid))
                     debug(jstack(node.pid))
                     debug(jmap(node.pid))
