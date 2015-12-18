@@ -572,10 +572,7 @@ class Tester(TestCase):
             con.cluster.shutdown()
 
         for runner in self.runners:
-            try:
-                runner.stop()
-            except:
-                pass
+            runner.stop()  # there may be exceptions here. let it explode!
 
         failed = sys.exc_info() != (None, None, None)
         try:
