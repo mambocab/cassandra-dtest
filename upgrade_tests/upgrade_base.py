@@ -23,15 +23,22 @@ UPGRADE_TO_DIR = os.environ.get('UPGRADE_TO_DIR', None)
 UpgradePath = namedtuple('UpgradePath', ('starting_version', 'upgrade_version'))
 
 
-trunk_version = '3.4'
 latest_2dot0 = '2.0.17'
-latest_2dot1 = '2.1.12'
-latest_2dot2 = '2.2.4'
-latest_3dot0 = '3.0.2'
+latest_2dot1 = '2.1.13'
+latest_2dot2 = '2.2.5'
+latest_3dot0 = 'git:3.0.3-tentative'
 latest_3dot1 = '3.1.1'
 latest_3dot2 = '3.2.1'
-latest_3dot3 = '3.3'
-trunk_ccm_string = 'git:trunk'
+latest_3dot3 = 'git:3.3-tentative'
+
+head_2dot0 = 'git:cassandra-2.0'
+head_2dot1 = 'git:cassandra-2.1'
+head_2dot2 = 'git:cassandra-2.2'
+head_3dot0 = 'git:cassandra-3.0'
+head_3dot1 = 'git:cassandra-3.1'
+head_3dot2 = 'git:cassandra-3.2'
+head_3dot3 = 'git:cassandra-3.3'
+head_trunk = 'git:trunk'
 
 
 def sanitize_version(version, allow_ambiguous=True):
@@ -42,7 +49,7 @@ def sanitize_version(version, allow_ambiguous=True):
     If allow_ambiguous is False, will raise RuntimeError if no version is found.
     """
     if (version == 'git:trunk') or (version == 'trunk'):
-        return LooseVersion(trunk_ccm_string)
+        return LooseVersion(head_trunk)
 
     match = re.match('^.*(\d+\.+\d+\.*\d*).*$', unicode(version))
     if match:
