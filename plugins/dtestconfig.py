@@ -7,6 +7,7 @@ GlobalConfigObject = namedtuple('GlobalConfigObject', [
 ])
 
 _CONFIG = None
+UNCONFIGURED = object()
 
 
 class DtestConfigPlugin(plugins.Plugin):
@@ -16,17 +17,23 @@ class DtestConfigPlugin(plugins.Plugin):
     enabled = True  # if this plugin is loaded at all, we're using it
     name = 'dtest_config'
 
+    def __init__(self, config=None):
+        self.CONFIG = config
+
     def options(self, parser, env):
         parser.add_option(
             '--no-vnodes',
             dest='vnodes',
             action='store_false',
-            default=True,
+            default=UNCONFIGURED,
             help='If set, disable vnodes.',
         )
 
     def configure(self, options, conf):
+        if self.config is None:
+            self.CONFIG = GlobalConfigObject(
+                vnodes=options.vnodes,
+            )
+
         global _CONFIG
-        _CONFIG = GlobalConfigObject(
-            vnodes=options.vnodes,
-        )
+        self.CONFIG = _CONFIG
