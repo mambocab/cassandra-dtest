@@ -46,6 +46,9 @@ VALID_UPGRADE_PAIRS = (
     UpgradePath(name='2_2_HEAD_UpTo_3_0', starting_version=head_2dot2, upgrade_version=latest_3dot0),
     UpgradePath(name='3_0_UpTo_Trunk', starting_version=latest_3dot0, upgrade_version=head_trunk),
     UpgradePath(name='3_2_UpTo_Trunk', starting_version=latest_3dot2, upgrade_version=head_trunk),
+    UpgradePath(name='github_to_github',
+                starting_version='github:pcmanus/cassandra-2.1',
+                upgrade_version='github:pcmanus/cassandra-3.3'),
 )
 
 
