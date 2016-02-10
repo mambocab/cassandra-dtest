@@ -30,8 +30,8 @@ from nose.exc import SkipTest
 
 # We don't want test files to know about the plugins module, so we import
 # constants here and re-export them.
-from plugins.testconfig import _CONFIG as CONFIG
-from plugins.testconfig import GlobalConfigObject
+from plugins.dtestconfig import _CONFIG as CONFIG
+from plugins import dtestconfig
 
 LOG_SAVED_DIR = "logs"
 try:
@@ -64,10 +64,17 @@ SILENCE_DRIVER_ON_SHUTDOWN = os.environ.get('SILENCE_DRIVER_ON_SHUTDOWN', 'true'
 IGNORE_REQUIRE = os.environ.get('IGNORE_REQUIRE', '').lower() in ('yes', 'true')
 DATADIR_COUNT = os.environ.get('DATADIR_COUNT', '3')
 
+_default_config = dtestconfig.GlobalConfigObject(
+    vnodes=True,
+)
+
 if CONFIG is None:
-    CONFIG = GlobalConfigObject(
-        vnodes=True,
-    )
+    CONFIG = _default_config
+else:
+    for field, value in CONFIG._asdict().items():
+        if value is dtestconfig.UNCONFIGURED:
+            CONFIG = CONFIG._replace(**{field: _default_config[field]})
+
 
 DISABLE_VNODES = not CONFIG.vnodes
 
