@@ -1,7 +1,13 @@
 #!/usr/bin/env python
+"""
+Usage runner.py [--vnodes VNODES...]
+
+--nose-option NOSE_OPTIONS...  specify options to pass to `nosetests`.
+"""
 from __future__ import print_function
 
 import nose
+from docopt import docopt
 
 from plugins import dtestconfig
 
@@ -14,13 +20,11 @@ class NullRunner():
     def run(self, test):
         return NullResult()
 
-if __name__ == '__main__':
-    spelunking_plugin = dtestconfig.DtestConfigPlugin()
-    nose.core.TestProgram(
-        testRunner=NullRunner(),
-        addplugins=[spelunking_plugin],
-        exit=False,
-    )
-    print(spelunking_plugin.CONFIG)
+def validate_and_serialize_options():
+    pass
 
-    # nose.main(addplugins=[testconfig.DtestConfigPlugin()])
+if __name__ == '__main__':
+    options = docopt(__doc__)
+
+    nose.main(addplugins=[dtestconfig.DtestConfigPlugin()],
+              argv=options['--nose-option'])
