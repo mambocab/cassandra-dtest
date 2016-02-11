@@ -30,7 +30,7 @@ class DtestConfigPlugin(plugins.Plugin):
         )
 
     def configure(self, options, conf):
-        if self.config is None:
+        if self.CONFIG is None:
             self.CONFIG = GlobalConfigObject(
                 vnodes=options.vnodes,
             )
