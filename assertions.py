@@ -101,3 +101,29 @@ def assert_crc_check_chance_equal(session, table, expected, ks="ks", view=False)
                    "SELECT crc_check_chance from system_schema.tables WHERE keyspace_name = 'ks' AND "
                    "table_name = '{table}';".format(table=table),
                    [expected])
+
+
+def assert_invalid_with_no_secondary_index(session, query, version, column_name):
+    """
+    A wrapper around assert_invalid that checks that the failure was due to
+    attempting a query that would require a secondary index, but there is no
+    such index.
+    """
+    non_primary_key_2i_unsupported = (
+        "Predicates on non-primary-key columns \({column_name}\) "
+        "are not yet supported for non secondary index queries").format(column_name=column_name)
+    use_allow_filtering = (
+        "Cannot execute this query as it might involve data filtering and "
+        "thus may have unpredictable performance. If you want to execute this "
+        "query despite the performance unpredictability, use ALLOW FILTERING"
+    )
+    operators_unsupported_on_2i_columns = 'No secondary indexes on the restricted columns support the provided operators'
+    no_supported_2i = 'No supported secondary index found for the non primary key columns restrictions'
+
+    post_cassandra_6377 = ('2.2.4' < version < '3') or ('3' < version <= '3.0.4') or ('3.4' <= version)
+    if post_cassandra_6377:
+        expected_msg = non_primary_key_2i_unsupported if version < '3' else use_allow_filtering
+    else:
+        expected_msg = operators_unsupported_on_2i_columns if version < '3' else no_supported_2i
+
+    assert_invalid(session=session, query=query, matching=expected_msg)

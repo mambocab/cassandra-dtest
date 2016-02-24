@@ -6,7 +6,7 @@ import uuid
 
 from dtest import Tester, debug
 from tools import since, rows_to_list
-from assertions import assert_invalid, assert_one
+from assertions import assert_invalid, assert_one, assert_invalid_with_no_secondary_index
 from cassandra import InvalidRequest
 from cassandra.concurrent import execute_concurrent, execute_concurrent_with_args
 from cassandra.query import BatchStatement, SimpleStatement
@@ -477,10 +477,7 @@ class TestSecondaryIndexesOnCollections(Tester):
         # no index present yet, make sure there's an error trying to query column
         stmt = ("SELECT * from simple_with_tuple where single_tuple = (1)")
 
-        if self.cluster.version() < "3":
-            assert_invalid(session, stmt, 'No secondary indexes on the restricted columns support the provided operators')
-        else:
-            assert_invalid(session, stmt, 'No supported secondary index found for the non primary key columns restrictions')
+        assert_invalid_with_no_secondary_index(session, stmt, self.cluster.version(), 'single_tuple')
 
         session.execute("CREATE INDEX idx_single_tuple ON simple_with_tuple(single_tuple);")
         session.execute("CREATE INDEX idx_double_tuple ON simple_with_tuple(double_tuple);")
@@ -560,10 +557,7 @@ class TestSecondaryIndexesOnCollections(Tester):
         stmt = ("SELECT * from list_index_search.users where uuids contains {some_uuid}"
                 ).format(some_uuid=uuid.uuid4())
 
-        if self.cluster.version() < "3":
-            assert_invalid(session, stmt, 'No secondary indexes on the restricted columns support the provided operators')
-        else:
-            assert_invalid(session, stmt, 'No supported secondary index found for the non primary key columns restrictions')
+        assert_invalid_with_no_secondary_index(session, stmt, self.cluster.version(), 'uuids')
 
         # add index and query again (even though there are no rows in the table yet)
         stmt = "CREATE INDEX user_uuids on list_index_search.users (uuids);"
@@ -656,10 +650,7 @@ class TestSecondaryIndexesOnCollections(Tester):
 
         # no index present yet, make sure there's an error trying to query column
         stmt = ("SELECT * from set_index_search.users where uuids contains {some_uuid}").format(some_uuid=uuid.uuid4())
-        if self.cluster.version() < "3":
-            assert_invalid(session, stmt, 'No secondary indexes on the restricted columns support the provided operators')
-        else:
-            assert_invalid(session, stmt, 'No supported secondary index found for the non primary key columns restrictions')
+        assert_invalid_with_no_secondary_index(session, stmt, self.cluster.version(), 'uuids')
 
         # add index and query again (even though there are no rows in the table yet)
         stmt = "CREATE INDEX user_uuids on set_index_search.users (uuids);"
@@ -801,16 +792,13 @@ class TestSecondaryIndexesOnCollections(Tester):
                 "uuids map<uuid, uuid>);")
         session.execute(stmt)
 
-        no_index_error = ('No secondary indexes on the restricted columns support the provided operators'
-                          if self.cluster.version() < '3' else
-                          'No supported secondary index found for the non primary key columns restrictions')
         # no index present yet, make sure there's an error trying to query column
         stmt = ("SELECT * from map_index_search.users where uuids contains {some_uuid}").format(some_uuid=uuid.uuid4())
-        assert_invalid(session, stmt, no_index_error)
+        assert_invalid_with_no_secondary_index(session, stmt, self.cluster.version(), 'uuids')
 
         stmt = ("SELECT * from map_index_search.users where uuids contains key {some_uuid}"
                 ).format(some_uuid=uuid.uuid4())
-        assert_invalid(session, stmt, no_index_error)
+        assert_invalid_with_no_secondary_index(session, stmt, self.cluster.version(), 'uuids')
 
         # add index on keys and query again (even though there are no rows in the table yet)
         stmt = "CREATE INDEX user_uuids on map_index_search.users (KEYS(uuids));"
