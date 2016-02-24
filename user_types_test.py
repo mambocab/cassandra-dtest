@@ -3,7 +3,7 @@ import uuid
 import re
 from dtest import Tester
 from tools import since, require
-from assertions import assert_invalid
+from assertions import assert_invalid, assert_invalid_with_no_secondary_index
 from cassandra import Unauthorized, ConsistencyLevel
 from cassandra.query import SimpleStatement
 
@@ -406,10 +406,7 @@ class TestUserTypes(Tester):
               SELECT * from person_likes where name = {first:'Nero', middle: 'Claudius Caesar Augustus', last: 'Germanicus'};
             """
 
-        if self.cluster.version() < "3":
-            assert_invalid(session, stmt, 'No secondary indexes on the restricted columns support the provided operators')
-        else:
-            assert_invalid(session, stmt, 'No supported secondary index found for the non primary key columns restrictions')
+        assert_invalid_with_no_secondary_index(session, stmt, self.cluster.version())
 
         # add index and query again (even though there are no rows in the table yet)
         stmt = """

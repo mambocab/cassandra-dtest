@@ -101,3 +101,17 @@ def assert_crc_check_chance_equal(session, table, expected, ks="ks", view=False)
                    "SELECT crc_check_chance from system_schema.tables WHERE keyspace_name = 'ks' AND "
                    "table_name = '{table}';".format(table=table),
                    [expected])
+
+
+def assert_invalid_with_no_secondary_index(session, query, version):
+    """
+    A wrapper around assert_invalid that checks that the failure was due to
+    attempting a query that would require a secondary index, but there is no
+    such index.
+    """
+    expected_msg = (
+        'No secondary indexes on the restricted columns support the provided operators'
+        if version < '3' else
+        'No supported secondary index found for the non primary key columns restrictions'
+    )
+    assert_invalid(session=session, query=query, matching=expected_msg)
