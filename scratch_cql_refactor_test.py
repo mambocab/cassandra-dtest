@@ -77,7 +77,7 @@ class LargeCollectionErrorsSpec(DtestSpec):
 
     def validate(self):
         # We only warn with protocol 2
-        session = self.tester.patient_cql_connection(self.node, protocol_version=2)
+        session = self.tester.patient_exclusive_cql_connection(self.node, protocol_version=2)
         session.execute('USE ks')
 
         # Insert more than the max, which is 65535
