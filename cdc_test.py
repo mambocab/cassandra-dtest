@@ -41,4 +41,5 @@ class TestCDC(Tester):
         - We need basic tests to determine that commitlogs written with CDC enabled
           can be read when the CDC table has CDC disabled, and vice-versa.
         """
-        pass
+        self.cluster.populate(1)
+         q
