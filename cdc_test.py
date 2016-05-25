@@ -1,5 +1,10 @@
 from __future__ import division
+
+from cassandra.concurrent import execute_concurrent_with_args
+
 from dtest import Tester
+from tools import rows_to_list
+
 
 """
 - We want to add dtests to determine that CDC data is correctly flushed to
@@ -41,5 +46,24 @@ class TestCDC(Tester):
         - We need basic tests to determine that commitlogs written with CDC enabled
           can be read when the CDC table has CDC disabled, and vice-versa.
         """
-        self.cluster.populate(1)
-         q
+        self.cluster.populate(1).set_configuration_options({'cdc_enabled': True}).start(wait_for_binary_proto=True)
+        node = self.cluster.nodelist()[0]
+        session = self.patient_cql_connection(node)
+        ks_name, table_name = 'ks', 'tab'
+        self.create_ks(session, ks_name, rf=1)
+        session.execute('CREATE TABLE ' + table_name + ' (a int PRIMARY KEY, b int) WITH CDC = true;')
+        insert_stmt = session.prepare('INSERT INTO ' + table_name + ' (a, b) VALUES (?, ?)')
+
+        data = tuple(zip(tuple(range(1000)), tuple(range(1000))))
+
+        execute_concurrent_with_args(session, insert_stmt, data)
+
+        # We need data to be in commitlogs, not sstables.
+        self.assertEqual([], list(node.get_sstables(ks_name, table_name)))
+
+        session.execute('ALTER TABLE ' + table_name + ' WITH CDC = false;')
+
+        self.assertItemsEqual(
+            rows_to_list(session.execute('SELECT * FROM ' + table_name)),
+            data
+        )
