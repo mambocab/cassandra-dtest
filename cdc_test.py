@@ -3,7 +3,6 @@ from __future__ import division
 from cassandra.concurrent import execute_concurrent_with_args
 
 from dtest import Tester, debug
-from functools import partial
 
 
 def set_cdc_on_table(session, table_name, value, ks_name=None):
@@ -16,6 +15,38 @@ def set_cdc_on_table(session, table_name, value, ks_name=None):
 
     debug(stmt)
     session.execute(stmt)
+
+
+def get_set_cdc_func(session, ks_name, table_name):
+    def f(value):
+        return set_cdc_on_table(
+            session=session,
+            ks_name=ks_name, table_name=table_name,
+            value=value
+        )
+    return f
+
+
+# def get_enable_and_disable_cdc_funcs(session, ks_name, table_name):
+#     """
+#     Generate {enable,disable}_cdc functions that use session to enable or
+#     disable CDC on <ks_name>.<table_name>.
+
+#     <ks_name> is a required argument for this function even though it could be
+#     optional in the case where <session> has USEd a keyspace. This is because
+#     this function closes over <session>, and if other code has <session> USE a
+#     different keyspace, it would change the behavior of the functions returned
+#     here.
+#     """
+#     enable_cdc = partial(set_cdc_on_table,
+#                          session=session,
+#                          ks_name=ks_name, table_name=table_name,
+#                          value=True)
+#     disable_cdc = partial(set_cdc_on_table,
+#                           session=session,
+#                           ks_name=ks_name, table_name=table_name,
+#                           value=False)
+#     return enable_cdc, disable_cdc
 
 
 """
@@ -44,26 +75,6 @@ def set_cdc_on_table(session, table_name, value, ks_name=None):
   discard.
 """
 
-def enable_and_disable_cdc_funcs_for(session, ks_name, table_name):
-    """
-    Generate {enable,disable}_cdc functions that use session to enable or
-    disable CDC on <ks_name>.<table_name>.
-
-    <ks_name> is a required argument for this function even though it could be
-    optional in the case where <session> has USEd a keyspace. This is because
-    this function closes over <session>, and if other code has <session> USE a
-    different keyspace, it would change the behavior of the functions returned
-    here.
-    """
-    enable_cdc = partial(set_cdc_on_table,
-                         session=session,
-                         ks_name=ks_name, table_name=table_name,
-                         value=True)
-    disable_cdc = partial(set_cdc_on_table,
-                          session=session,
-                          ks_name=ks_name, table_name=table_name,
-                          value=False)
-    return enable_cdc, disable_cdc
 
 class TestCDC(Tester):
     """
@@ -81,54 +92,35 @@ class TestCDC(Tester):
 
         if table_name is not None:
             self.assertIsNotNone(cdc_enabled, 'if creating a table in prepare, must specify cdc_enabled')
-            session.execute(
-                'CREATE TABLE ' + table_name +
-                ' (a int PRIMARY KEY, b int) WITH CDC = ' +
-                'true' if cdc_enabled else 'false'
-            )
+            stmt = ('CREATE TABLE ' + table_name + ' ' +
+                    '(a int PRIMARY KEY, b int) ' +
+                    'WITH CDC = ' + ('true' if cdc_enabled else 'false'))
+            debug(stmt)
+            session.execute(stmt)
 
         return node, session
 
-    def test_cdc_data_tables_readable_round_trip_enabled(self):
-        """
-        Ensure that data written to a CDC-enabled table is still readable after
-        disabling CDC on that table, then again after reenabling it.
-        """
+    def _cdc_data_readable_on_round_trip(self, start_enabled):
         ks_name, table_name = 'ks', 'tab'
-        node, session = self.prepare(ks_name=ks_name, table_name=table_name, cdc_enabled=True)
-        insert_stmt = session.prepare('INSERT INTO ' + table_name + ' (a, b) VALUES (?, ?)')
+        start = bool(start_enabled)
+        alter_path = [False, True] if start_enabled else [True, False]
 
+        node, session = self.prepare(ks_name=ks_name, table_name=table_name, cdc_enabled=start)
+        set_cdc = get_set_cdc_func(session=session, ks_name=ks_name, table_name=table_name)
+
+        insert_stmt = session.prepare('INSERT INTO ' + table_name + ' (a, b) VALUES (?, ?)')
         data = tuple(zip(list(range(1000)), list(range(1000))))
         execute_concurrent_with_args(session, insert_stmt, data)
 
         # We need data to be in commitlogs, not sstables.
         self.assertEqual([], list(node.get_sstables(ks_name, table_name)))
 
-        enable_cdc, disable_cdc = enable_and_disable_cdc_funcs_for(session=session, ks_name=ks_name, table_name=table_name)
+        for x in alter_path:
+            set_cdc(x)
+            self.assertItemsEqual(session.execute('SELECT * FROM ' + table_name), data)
 
-        disable_cdc()
-        self.assertItemsEqual(session.execute('SELECT * FROM ' + table_name), data)
-        enable_cdc()
-        self.assertItemsEqual(session.execute('SELECT * FROM ' + table_name), data)
+    def test_cdc_enabled_data_readable_on_round_trip(self):
+        self._cdc_data_readable_on_round_trip(True)
 
-    def test_cdc_data_tables_readable_round_trip_disabled(self):
-        """
-        Ensure that data written to a non-CDC table is still readable after
-        enabling CDC on that table, then again after disabling it.
-        """
-        ks_name, table_name = 'ks', 'tab'
-        node, session = self.prepare(ks_name=ks_name, table_name=table_name, cdc_enabled=False)
-        insert_stmt = session.prepare('INSERT INTO ' + table_name + ' (a, b) VALUES (?, ?)')
-
-        data = tuple(zip(list(range(1000)), list(range(1000))))
-        execute_concurrent_with_args(session, insert_stmt, data)
-
-        # We need data to be in commitlogs, not sstables.
-        self.assertEqual([], list(node.get_sstables(ks_name, table_name)))
-
-        enable_cdc, disable_cdc = enable_and_disable_cdc_funcs_for(session=session, ks_name=ks_name, table_name=table_name)
-
-        enable_cdc()
-        self.assertItemsEqual(session.execute('SELECT * FROM ' + table_name), data)
-        disable_cdc()
-        self.assertItemsEqual(session.execute('SELECT * FROM ' + table_name), data)
+    def test_cdc_disabled_data_readable_on_round_trip(self):
+        self._cdc_data_readable_on_round_trip(False)
