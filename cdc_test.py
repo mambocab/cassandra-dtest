@@ -1,8 +1,13 @@
 from __future__ import division
 
+import time
+
 from cassandra.concurrent import execute_concurrent_with_args
 
 from dtest import Tester, debug
+from itertools import izip as zip
+
+from uuid import uuid4
 
 
 def set_cdc_on_table(session, table_name, value, ks_name=None):
@@ -66,13 +71,6 @@ def get_set_cdc_func(session, ks_name, table_name):
     - starting the new cluster to commitlog replay, then
     - asserting all data that should have been exposed via CDC is in the
       table(s) that have been written to tables in the new cluster.
-- We need tests of commitlog discard behavior when cdc_raw is full. In
-  particular:
-- once it reaches its maximum configured size, CDC tables should start
-  rejecting writes, while CDC tables should still accept them.
-- any new commitlog segments written after cdc_raw has reached its maximum
-  configured size should be deleted, not moved to cdc_raw, on commitlog
-  discard.
 """
 
 
@@ -84,17 +82,31 @@ class TestCDC(Tester):
     provides an view of the commitlog on tables for which it is enabled.
     """
 
-    def prepare(self, ks_name, table_name=None, cdc_enabled=None):
-        self.cluster.populate(1).set_configuration_options({'cdc_enabled': True}).start(wait_for_binary_proto=True)
+    def prepare(self, ks_name,
+                table_name=None, cdc_enabled_table=None,
+                data_schema=None,
+                configuration_overrides=None):
+        """
+        Create a cluster, start it, create a keyspace, and if <table_name>,
+        create a table in that keyspace. If <cdc_enabled_table>, that table is
+        created with CDC enabled.
+        """
+        config_defaults = {'cdc_enabled': True}
+        if configuration_overrides is None:
+            configuration_overrides = {}
+        self.cluster.populate(1)
+        self.cluster.set_configuration_options(dict(config_defaults, **configuration_overrides))
+        self.cluster.start(wait_for_binary_proto=True)
         node = self.cluster.nodelist()[0]
         session = self.patient_cql_connection(node)
         self.create_ks(session, ks_name, rf=1)
 
         if table_name is not None:
-            self.assertIsNotNone(cdc_enabled, 'if creating a table in prepare, must specify cdc_enabled')
-            stmt = ('CREATE TABLE ' + table_name + ' ' +
-                    '(a int PRIMARY KEY, b int) ' +
-                    'WITH CDC = ' + ('true' if cdc_enabled else 'false'))
+            self.assertIsNotNone(cdc_enabled_table, 'if creating a table in prepare, must specify whether or not CDC is enabled on it')
+            self.assertIsNotNone(data_schema, 'if creating a table in prepare, must specify its schema')
+            stmt = ('CREATE TABLE ' + table_name +
+                    ' ' + data_schema + ' ' +
+                    'WITH CDC = ' + ('true' if cdc_enabled_table else 'false'))
             debug(stmt)
             session.execute(stmt)
 
@@ -105,7 +117,9 @@ class TestCDC(Tester):
         start = bool(start_enabled)
         alter_path = [False, True] if start_enabled else [True, False]
 
-        node, session = self.prepare(ks_name=ks_name, table_name=table_name, cdc_enabled=start)
+        node, session = self.prepare(ks_name=ks_name, table_name=table_name,
+                                     cdc_enabled_table=start,
+                                     data_schema='(a int PRIMARY KEY, b int)')
         set_cdc = get_set_cdc_func(session=session, ks_name=ks_name, table_name=table_name)
 
         insert_stmt = session.prepare('INSERT INTO ' + table_name + ' (a, b) VALUES (?, ?)')
@@ -124,3 +138,37 @@ class TestCDC(Tester):
 
     def test_cdc_disabled_data_readable_on_round_trip(self):
         self._cdc_data_readable_on_round_trip(False)
+
+    def test_cdc_changes_rejected_on_full_cdc_log_dir(self):
+        ks_name, table_name = 'ks', 'tab'
+        node, session = self.prepare(
+            ks_name=ks_name, table_name=table_name, cdc_enabled_table=True,
+            data_schema='(a uuid PRIMARY KEY, b uuid)',
+            configuration_overrides={'cdc_total_space_in_mb': 1}
+        )
+        insert_stmt = session.prepare('INSERT INTO ' + table_name + ' (a, b) VALUES (?, ?)')
+        # data = tuple(zip(list(range(1000)), list(range(1000))))
+        # execute_concurrent_with_args(session, insert_stmt, data)
+        start = time.time()
+        printed = set()
+        while True:
+            seconds = time.time() - start
+            if seconds > 600:
+                raise RuntimeError
+            if not int(seconds) % 10:
+                tens_of_seconds = seconds // 10
+                if tens_of_seconds not in printed:
+                    debug(tens_of_seconds)
+                    printed.add(tens_of_seconds)
+            session.execute(insert_stmt, (uuid4(), uuid4()))
+
+
+"""
+- We need tests of commitlog discard behavior when cdc_raw is full. In
+  particular:
+    - once it reaches its maximum configured size, CDC tables should start
+      rejecting writes, while CDC tables should still accept them.
+    - any new commitlog segments written after cdc_raw has reached its maximum
+      configured size should be deleted, not moved to cdc_raw, on commitlog
+      discard.
+"""
