@@ -73,11 +73,20 @@ class TestCDC(Tester):
     provides an view of the commitlog on tables for which it is enabled.
     """
 
-    def prepare(self, ks_name):
+    def prepare(self, ks_name, table_name=None, cdc_enabled=None):
         self.cluster.populate(1).set_configuration_options({'cdc_enabled': True}).start(wait_for_binary_proto=True)
         node = self.cluster.nodelist()[0]
         session = self.patient_cql_connection(node)
         self.create_ks(session, ks_name, rf=1)
+
+        if table_name is not None:
+            self.assertIsNotNone(cdc_enabled, 'if creating a table in prepare, must specify cdc_enabled')
+            session.execute(
+                'CREATE TABLE ' + table_name +
+                ' (a int PRIMARY KEY, b int) WITH CDC = ' +
+                'true' if cdc_enabled else 'false'
+            )
+
         return node, session
 
     def test_cdc_data_tables_readable_round_trip_enabled(self):
@@ -86,8 +95,7 @@ class TestCDC(Tester):
         disabling CDC on that table, then again after reenabling it.
         """
         ks_name, table_name = 'ks', 'tab'
-        node, session = self.prepare(ks_name=ks_name)
-        session.execute('CREATE TABLE ' + table_name + ' (a int PRIMARY KEY, b int) WITH CDC = true')
+        node, session = self.prepare(ks_name=ks_name, table_name=table_name, cdc_enabled=True)
         insert_stmt = session.prepare('INSERT INTO ' + table_name + ' (a, b) VALUES (?, ?)')
 
         data = tuple(zip(list(range(1000)), list(range(1000))))
@@ -105,12 +113,11 @@ class TestCDC(Tester):
 
     def test_cdc_data_tables_readable_round_trip_disabled(self):
         """
-        Ensure that data written to a CDC-enabled table is still readable after
-        disabling CDC on that table, then again after reenabling it.
+        Ensure that data written to a non-CDC table is still readable after
+        enabling CDC on that table, then again after disabling it.
         """
         ks_name, table_name = 'ks', 'tab'
-        node, session = self.prepare(ks_name=ks_name)
-        session.execute('CREATE TABLE ' + table_name + ' (a int PRIMARY KEY, b int) WITH CDC = false')
+        node, session = self.prepare(ks_name=ks_name, table_name=table_name, cdc_enabled=False)
         insert_stmt = session.prepare('INSERT INTO ' + table_name + ' (a, b) VALUES (?, ?)')
 
         data = tuple(zip(list(range(1000)), list(range(1000))))
