@@ -2,8 +2,20 @@ from __future__ import division
 
 from cassandra.concurrent import execute_concurrent_with_args
 
-from dtest import Tester
-from tools import rows_to_list
+from dtest import Tester, debug
+from functools import partial
+
+
+def set_cdc_on_table(session, table_name, value, ks_name=None):
+    """
+    Uses <session> to set CDC to <value> on <ks_name>.<table_name>.
+    """
+    table_string = ks_name + '.' + table_name if ks_name else table_name
+    value_string = 'true' if value else 'false'
+    stmt = 'ALTER TABLE ' + table_string + ' WITH CDC = ' + value_string
+
+    debug(stmt)
+    session.execute(stmt)
 
 
 """
@@ -32,6 +44,26 @@ from tools import rows_to_list
   discard.
 """
 
+def enable_and_disable_cdc_funcs_for(session, ks_name, table_name):
+    """
+    Generate {enable,disable}_cdc functions that use session to enable or
+    disable CDC on <ks_name>.<table_name>.
+
+    <ks_name> is a required argument for this function even though it could be
+    optional in the case where <session> has USEd a keyspace. This is because
+    this function closes over <session>, and if other code has <session> USE a
+    different keyspace, it would change the behavior of the functions returned
+    here.
+    """
+    enable_cdc = partial(set_cdc_on_table,
+                         session=session,
+                         ks_name=ks_name, table_name=table_name,
+                         value=True)
+    disable_cdc = partial(set_cdc_on_table,
+                          session=session,
+                          ks_name=ks_name, table_name=table_name,
+                          value=False)
+    return enable_cdc, disable_cdc
 
 class TestCDC(Tester):
     """
@@ -41,29 +73,55 @@ class TestCDC(Tester):
     provides an view of the commitlog on tables for which it is enabled.
     """
 
-    def test_tables_readable_round_trip(self):
-        """
-        - We need basic tests to determine that commitlogs written with CDC enabled
-          can be read when the CDC table has CDC disabled, and vice-versa.
-        """
+    def prepare(self, ks_name):
         self.cluster.populate(1).set_configuration_options({'cdc_enabled': True}).start(wait_for_binary_proto=True)
         node = self.cluster.nodelist()[0]
         session = self.patient_cql_connection(node)
-        ks_name, table_name = 'ks', 'tab'
         self.create_ks(session, ks_name, rf=1)
-        session.execute('CREATE TABLE ' + table_name + ' (a int PRIMARY KEY, b int) WITH CDC = true;')
+        return node, session
+
+    def test_cdc_data_tables_readable_round_trip_enabled(self):
+        """
+        Ensure that data written to a CDC-enabled table is still readable after
+        disabling CDC on that table, then again after reenabling it.
+        """
+        ks_name, table_name = 'ks', 'tab'
+        node, session = self.prepare(ks_name=ks_name)
+        session.execute('CREATE TABLE ' + table_name + ' (a int PRIMARY KEY, b int) WITH CDC = true')
         insert_stmt = session.prepare('INSERT INTO ' + table_name + ' (a, b) VALUES (?, ?)')
 
-        data = tuple(zip(tuple(range(1000)), tuple(range(1000))))
-
+        data = tuple(zip(list(range(1000)), list(range(1000))))
         execute_concurrent_with_args(session, insert_stmt, data)
 
         # We need data to be in commitlogs, not sstables.
         self.assertEqual([], list(node.get_sstables(ks_name, table_name)))
 
-        session.execute('ALTER TABLE ' + table_name + ' WITH CDC = false;')
+        enable_cdc, disable_cdc = enable_and_disable_cdc_funcs_for(session=session, ks_name=ks_name, table_name=table_name)
 
-        self.assertItemsEqual(
-            rows_to_list(session.execute('SELECT * FROM ' + table_name)),
-            data
-        )
+        disable_cdc()
+        self.assertItemsEqual(session.execute('SELECT * FROM ' + table_name), data)
+        enable_cdc()
+        self.assertItemsEqual(session.execute('SELECT * FROM ' + table_name), data)
+
+    def test_cdc_data_tables_readable_round_trip_disabled(self):
+        """
+        Ensure that data written to a CDC-enabled table is still readable after
+        disabling CDC on that table, then again after reenabling it.
+        """
+        ks_name, table_name = 'ks', 'tab'
+        node, session = self.prepare(ks_name=ks_name)
+        session.execute('CREATE TABLE ' + table_name + ' (a int PRIMARY KEY, b int) WITH CDC = false')
+        insert_stmt = session.prepare('INSERT INTO ' + table_name + ' (a, b) VALUES (?, ?)')
+
+        data = tuple(zip(list(range(1000)), list(range(1000))))
+        execute_concurrent_with_args(session, insert_stmt, data)
+
+        # We need data to be in commitlogs, not sstables.
+        self.assertEqual([], list(node.get_sstables(ks_name, table_name)))
+
+        enable_cdc, disable_cdc = enable_and_disable_cdc_funcs_for(session=session, ks_name=ks_name, table_name=table_name)
+
+        enable_cdc()
+        self.assertItemsEqual(session.execute('SELECT * FROM ' + table_name), data)
+        disable_cdc()
+        self.assertItemsEqual(session.execute('SELECT * FROM ' + table_name), data)
