@@ -3,20 +3,11 @@ from __future__ import division
 import os
 import time
 
-from cassandra.concurrent import execute_concurrent_with_args
+from cassandra.concurrent import execute_concurrent_with_args, execute_concurrent
 from cassandra import WriteFailure
 
 from dtest import Tester, debug
 from itertools import izip as zip
-
-from uuid import uuid4
-
-CURRENT_DIR = os.path.abspath('.')
-full_cdc_test_cache_name = 'full_cdc_cache'
-SAVED_CDC_COMMITLOGS = {
-    full_cdc_test_cache_name:
-        os.path.join(CURRENT_DIR, full_cdc_test_cache_name, 'commitlogs'),
-}
 
 
 def set_cdc_on_table(session, table_name, value, ks_name=None):
@@ -42,7 +33,9 @@ def get_set_cdc_func(session, ks_name, table_name):
 
 
 def size_of_files_in_dir(dir_name):
-    return sum(os.path.getsize(f) for f in os.listdir(dir_name) if os.path.isfile(f))
+    files = [os.path.join(dir_name, f) for f in os.listdir(dir_name)]
+    debug('getting sizes of these files: {}'.format(files))
+    return sum(os.path.getsize(f) for f in files)
 
 # def get_enable_and_disable_cdc_funcs(session, ks_name, table_name):
 #     """
@@ -163,7 +156,7 @@ class TestCDC(Tester):
             data_schema='(a uuid PRIMARY KEY, b uuid)',
             configuration_overrides=configuration_overrides
         )
-        insert_stmt = session.prepare('INSERT INTO ' + ks_name + '.' + full_cdc_table_name + ' (a, b) VALUES (?, ?)')
+        insert_stmt = session.prepare('INSERT INTO ' + ks_name + '.' + full_cdc_table_name + ' (a, b) VALUES (uuid(), uuid())')
 
         # Later, we'll also make assertions about the behavior of non-CDC tables, so
         # we create one here.
@@ -180,52 +173,57 @@ class TestCDC(Tester):
         # Before inserting data, we flush to make sure that commitlogs from tables other than the
         # tables under test are gone.
         node.flush()
+        time.sleep(5)
         commitlog_dir = os.path.join(node.get_path(), 'commitlogs')
         self.assertEqual(0, size_of_files_in_dir(commitlog_dir))
 
-        full_cdc_cache = SAVED_CDC_COMMITLOGS[full_cdc_test_cache_name]
-        if os.path.exists(full_cdc_test_cache_name):
-            for f in os.listdir(full_cdc_cache):
-                os.symlink(os.path.join(full_cdc_cache, os.path.basename(f)), f)
-        else:
-            # Here, we insert values into the first CDC table until we get a
-            # WriteFailure. This should happen when the CDC commitlogs take up
-            # 1MB or more.
-            start, printed_times, rows_loaded = time.time(), set(), 0
-            debug('beginning data insert to fill CDC commitlogs')
-            while True:
-                seconds = time.time() - start
-                self.assertLessEqual(
-                    seconds, 600,
-                    "It's taken more than 10 minutes to reach a WriteFailure trying "
-                    'to overrun the space designated for CDC commitlogs. This could '
-                    "be because data isn't being written quickly enough in this "
-                    'environment, or because C* is failing to reject writes when '
-                    'it should.'
-                )
+        # Here, we insert values into the first CDC table until we get a
+        # WriteFailure. This should happen when the CDC commitlogs take up 1MB
+        # or more.
+        start, printed_times, rows_loaded = time.time(), set(), 0
+        debug('beginning data insert to fill CDC commitlogs')
+        while True:
+            seconds = time.time() - start
+            self.assertLessEqual(
+                seconds, 600,
+                "It's taken more than 10 minutes to reach a WriteFailure trying "
+                'to overrun the space designated for CDC commitlogs. This could '
+                "be because data isn't being written quickly enough in this "
+                'environment, or because C* is failing to reject writes when '
+                'it should.'
+            )
 
-                int_seconds = int(seconds)
-                if int_seconds % 10 == 0:
-                    if int_seconds not in printed_times:
-                        debug('  data load step has lasted {s:.2f}s, '
-                              'loaded {r} rows'.format(s=seconds, r=rows_loaded))
-                        printed_times.add(int_seconds)
+            int_seconds = int(seconds)
+            if int_seconds // 10 not in printed_times:
+                debug('  data load step has lasted {s:.2f}s, '
+                      'loaded {r} rows'.format(s=seconds, r=rows_loaded))
+                printed_times.add(int_seconds // 10)
 
-                try:
-                    session.execute(insert_stmt, (uuid4(), uuid4()))
-                    rows_loaded += 1
-                except WriteFailure:
+            num_rows_per_batch = 100000
+            batch_results = list(execute_concurrent(
+                session,
+                ((insert_stmt, ()) for _ in range(num_rows_per_batch)),
+                concurrency=10000,
+                raise_on_first_error=False
+            ))
+            # session.execute(insert_stmt, (uuid4(), uuid4()))
+            error_found = False
+            rows_loaded += sum(1 for br in batch_results if br[0])
+            for (success, result) in batch_results:
+                if not success and not error_found and isinstance(result, WriteFailure):
                     debug("write failed (presumably because we've overrun "
-                          "designated CDC commitlog space) after "
-                          "{s:.2f}s".format(s=time.time() - start))
-
-                    debug('Caching commitlogs in ' + full_cdc_cache)
-                    for f in os.listdir(commitlog_dir):
-                        os.symlink(f, os.path.join(full_cdc_cache, os.path.basename(f)))
-
+                          'designated CDC commitlog space) after '
+                          'loading {r} rows in {s:.2f}s'.format(
+                              r=rows_loaded,
+                              s=time.time() - start))
+                    error_found = True
                     break
+            if error_found:
+                break
 
-        self.assertGreaterEqual(1024 ** 2, size_of_files_in_dir(commitlog_dir))
+        commitlogs_size = size_of_files_in_dir(commitlog_dir)
+        debug('Commitlog dir ({d}) is {b}B'.format(d=commitlog_dir, b=commitlogs_size))
+        self.assertGreaterEqual(1024 ** 2, commitlogs_size)
 
         debug(list(os.walk(commitlog_dir)))
 
