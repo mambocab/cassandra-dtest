@@ -110,8 +110,9 @@ class TestCDC(Tester):
             self.assertIsNotNone(cdc_enabled_table, 'if creating a table in prepare, must specify whether or not CDC is enabled on it')
             self.assertIsNotNone(data_schema, 'if creating a table in prepare, must specify its schema')
             stmt = ('CREATE TABLE ' + table_name +
-                    ' ' + data_schema + ' ' +
-                    'WITH CDC = ' + ('true' if cdc_enabled_table else 'false'))
+                    ' ' + data_schema + ' '
+                    'WITH CDC = ' + ('true' if cdc_enabled_table else 'false')
+                    )
             debug(stmt)
             session.execute(stmt)
 
