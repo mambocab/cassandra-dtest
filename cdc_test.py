@@ -1,13 +1,22 @@
 from __future__ import division
 
+import os
 import time
 
 from cassandra.concurrent import execute_concurrent_with_args
+from cassandra import WriteFailure
 
 from dtest import Tester, debug
 from itertools import izip as zip
 
 from uuid import uuid4
+
+CURRENT_DIR = os.path.abspath('.')
+full_cdc_test_cache_name = 'full_cdc_cache'
+SAVED_CDC_COMMITLOGS = {
+    full_cdc_test_cache_name:
+        os.path.join(CURRENT_DIR, full_cdc_test_cache_name, 'commitlogs'),
+}
 
 
 def set_cdc_on_table(session, table_name, value, ks_name=None):
@@ -31,6 +40,9 @@ def get_set_cdc_func(session, ks_name, table_name):
         )
     return f
 
+
+def size_of_files_in_dir(dir_name):
+    return sum(os.path.getsize(f) for f in os.listdir(dir_name) if os.path.isfile(f))
 
 # def get_enable_and_disable_cdc_funcs(session, ks_name, table_name):
 #     """
@@ -114,8 +126,8 @@ class TestCDC(Tester):
 
     def _cdc_data_readable_on_round_trip(self, start_enabled):
         ks_name, table_name = 'ks', 'tab'
-        start = bool(start_enabled)
-        alter_path = [False, True] if start_enabled else [True, False]
+        sequence = [True, False, True] if start_enabled else [False, True, False]
+        start, alter_path = sequence[0], list(sequence[1:])
 
         node, session = self.prepare(ks_name=ks_name, table_name=table_name,
                                      cdc_enabled_table=start,
@@ -140,27 +152,82 @@ class TestCDC(Tester):
         self._cdc_data_readable_on_round_trip(False)
 
     def test_cdc_changes_rejected_on_full_cdc_log_dir(self):
-        ks_name, table_name = 'ks', 'tab'
+        ks_name, full_cdc_table_name = 'ks', 'full_cdc_tab'
+
+        # We're making assertions about CDC tables that fill up their
+        # designated space, so we make cdc space as small as possible.
+        configuration_overrides = {'cdc_total_space_in_mb': 1}
         node, session = self.prepare(
-            ks_name=ks_name, table_name=table_name, cdc_enabled_table=True,
+            ks_name=ks_name,
+            table_name=full_cdc_table_name, cdc_enabled_table=True,
             data_schema='(a uuid PRIMARY KEY, b uuid)',
-            configuration_overrides={'cdc_total_space_in_mb': 1}
+            configuration_overrides=configuration_overrides
         )
-        insert_stmt = session.prepare('INSERT INTO ' + table_name + ' (a, b) VALUES (?, ?)')
-        # data = tuple(zip(list(range(1000)), list(range(1000))))
-        # execute_concurrent_with_args(session, insert_stmt, data)
-        start = time.time()
-        printed = set()
-        while True:
-            seconds = time.time() - start
-            if seconds > 600:
-                raise RuntimeError
-            if not int(seconds) % 10:
-                tens_of_seconds = seconds // 10
-                if tens_of_seconds not in printed:
-                    debug(tens_of_seconds)
-                    printed.add(tens_of_seconds)
-            session.execute(insert_stmt, (uuid4(), uuid4()))
+        insert_stmt = session.prepare('INSERT INTO ' + ks_name + '.' + full_cdc_table_name + ' (a, b) VALUES (?, ?)')
+
+        # Later, we'll also make assertions about the behavior of non-CDC tables, so
+        # we create one here.
+        non_cdc_table_name = 'non_cdc_tab'
+        session.execute('CREATE TABLE ' + ks_name + '.' + non_cdc_table_name +
+                        ' (a uuid PRIMARY KEY, b uuid)')
+        # We'll also make assertions about the behavior of CDC tables when
+        # other CDC tables have already filled the designated space for CDC
+        # commitlogs, so we create the second table here.
+        emtpy_cdc_table_name = 'empty_cdc_tab'
+        session.execute('CREATE TABLE ' + ks_name + '.' + emtpy_cdc_table_name +
+                        ' (a uuid PRIMARY KEY, b uuid)')
+
+        # Before inserting data, we flush to make sure that commitlogs from tables other than the
+        # tables under test are gone.
+        node.flush()
+        commitlog_dir = os.path.join(node.get_path(), 'commitlogs')
+        self.assertEqual(0, size_of_files_in_dir(commitlog_dir))
+
+        full_cdc_cache = SAVED_CDC_COMMITLOGS[full_cdc_test_cache_name]
+        if os.path.exists(full_cdc_test_cache_name):
+            for f in os.listdir(full_cdc_cache):
+                os.symlink(os.path.join(full_cdc_cache, os.path.basename(f)), f)
+        else:
+            # Here, we insert values into the first CDC table until we get a
+            # WriteFailure. This should happen when the CDC commitlogs take up
+            # 1MB or more.
+            start, printed_times, rows_loaded = time.time(), set(), 0
+            debug('beginning data insert to fill CDC commitlogs')
+            while True:
+                seconds = time.time() - start
+                self.assertLessEqual(
+                    seconds, 600,
+                    "It's taken more than 10 minutes to reach a WriteFailure trying "
+                    'to overrun the space designated for CDC commitlogs. This could '
+                    "be because data isn't being written quickly enough in this "
+                    'environment, or because C* is failing to reject writes when '
+                    'it should.'
+                )
+
+                int_seconds = int(seconds)
+                if int_seconds % 10 == 0:
+                    if int_seconds not in printed_times:
+                        debug('  data load step has lasted {s:.2f}s, '
+                              'loaded {r} rows'.format(s=seconds, r=rows_loaded))
+                        printed_times.add(int_seconds)
+
+                try:
+                    session.execute(insert_stmt, (uuid4(), uuid4()))
+                    rows_loaded += 1
+                except WriteFailure:
+                    debug("write failed (presumably because we've overrun "
+                          "designated CDC commitlog space) after "
+                          "{s:.2f}s".format(s=time.time() - start))
+
+                    debug('Caching commitlogs in ' + full_cdc_cache)
+                    for f in os.listdir(commitlog_dir):
+                        os.symlink(f, os.path.join(full_cdc_cache, os.path.basename(f)))
+
+                    break
+
+        self.assertGreaterEqual(1024 ** 2, size_of_files_in_dir(commitlog_dir))
+
+        debug(list(os.walk(commitlog_dir)))
 
 
 """
