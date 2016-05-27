@@ -96,7 +96,9 @@ class TestCDC(Tester):
         create a table in that keyspace. If <cdc_enabled_table>, that table is
         created with CDC enabled.
         """
-        config_defaults = {'cdc_enabled': True}
+        config_defaults = {
+            'cdc_enabled': True,
+        }
         if configuration_overrides is None:
             configuration_overrides = {}
         self.cluster.populate(1)
@@ -162,31 +164,27 @@ class TestCDC(Tester):
         # Later, we'll also make assertions about the behavior of non-CDC tables, so
         # we create one here.
         non_cdc_table_name = 'non_cdc_tab'
-        session.execute('CREATE TABLE ' + ks_name + '.' + non_cdc_table_name +
-                        ' (a uuid PRIMARY KEY, b uuid)')
+        session.execute('CREATE TABLE ' + ks_name + '.' + non_cdc_table_name + ' '
+                        '(a uuid PRIMARY KEY, b uuid)')
         # We'll also make assertions about the behavior of CDC tables when
         # other CDC tables have already filled the designated space for CDC
         # commitlogs, so we create the second table here.
         emtpy_cdc_table_name = 'empty_cdc_tab'
-        session.execute('CREATE TABLE ' + ks_name + '.' + emtpy_cdc_table_name +
-                        ' (a uuid PRIMARY KEY, b uuid)')
-
-        # Before inserting data, we flush to make sure that commitlogs from tables other than the
-        # tables under test are gone.
-        node.flush()
-        time.sleep(5)
-        commitlog_dir = os.path.join(node.get_path(), 'commitlogs')
-        self.assertEqual(0, size_of_files_in_dir(commitlog_dir))
+        session.execute('CREATE TABLE ' + ks_name + '.' + emtpy_cdc_table_name + ' '
+                        '(a uuid PRIMARY KEY, b uuid) '
+                        'WITH CDC = true')
 
         # Here, we insert values into the first CDC table until we get a
         # WriteFailure. This should happen when the CDC commitlogs take up 1MB
         # or more.
-        start, printed_times, rows_loaded = time.time(), set(), 0
+        start, rows_loaded, error_found = time.time(), 0, False
+        last_time_logged = start
         debug('beginning data insert to fill CDC commitlogs')
-        while True:
-            seconds = time.time() - start
+        while not error_found:
+            # We want to fail if inserting data takes too long. Locally this
+            # takes about a minute and a half, so let's be generous.
             self.assertLessEqual(
-                seconds, 600,
+                (time.time() - start), 600,
                 "It's taken more than 10 minutes to reach a WriteFailure trying "
                 'to overrun the space designated for CDC commitlogs. This could '
                 "be because data isn't being written quickly enough in this "
@@ -194,37 +192,45 @@ class TestCDC(Tester):
                 'it should.'
             )
 
-            int_seconds = int(seconds)
-            if int_seconds // 10 not in printed_times:
+            # If we haven't logged from here in the last 5s, do so.
+            if time.time() - last_time_logged > 5:
                 debug('  data load step has lasted {s:.2f}s, '
-                      'loaded {r} rows'.format(s=seconds, r=rows_loaded))
-                printed_times.add(int_seconds // 10)
+                      'loaded {r} rows'.format(s=(time.time() - start), r=rows_loaded))
+                last_time_logged = time.time()
 
-            num_rows_per_batch = 100000
             batch_results = list(execute_concurrent(
                 session,
-                ((insert_stmt, ()) for _ in range(num_rows_per_batch)),
-                concurrency=10000,
+                # Insert values 100000 at a time...
+                ((insert_stmt, ()) for _ in range(100000)),
+                # with up to 500 connections.
+                concurrency=500,
+                # Don't propogate errors to the main thread. We expect at least
+                # one WriteFailure, so we handle it below as part of the
+                # results recieved from this method.
                 raise_on_first_error=False
             ))
-            # session.execute(insert_stmt, (uuid4(), uuid4()))
-            error_found = False
-            rows_loaded += sum(1 for br in batch_results if br[0])
-            for (success, result) in batch_results:
-                if not success and not error_found and isinstance(result, WriteFailure):
-                    debug("write failed (presumably because we've overrun "
-                          'designated CDC commitlog space) after '
-                          'loading {r} rows in {s:.2f}s'.format(
-                              r=rows_loaded,
-                              s=time.time() - start))
-                    error_found = True
-                    break
-            if error_found:
-                break
 
+            # Here, we track the number of inserted values by getting the
+            # number of successfully completed statements...
+            rows_loaded += len((br for br in batch_results if br[0]))
+            # then, we make sure that the only failures are the expected
+            # WriteFailures.
+            self.assertEqual((), (result for (success, result) in batch_results
+                                  if not success and not isinstance(result, WriteFailure)))
+            # Finally, if we find a WriteFailure, that means we've inserted all
+            # the CDC data we can and so we flip error_found to exit the loop.
+            if any(type(result) == WriteFailure for (_, result) in batch_results):
+                debug("write failed (presumably because we've overrun "
+                      'designated CDC commitlog space) after '
+                      'loading {r} rows in {s:.2f}s'.format(
+                          r=rows_loaded,
+                          s=time.time() - start))
+                error_found = True
+
+        commitlog_dir = os.path.join(node.get_path(), 'commitlogs')
         commitlogs_size = size_of_files_in_dir(commitlog_dir)
         debug('Commitlog dir ({d}) is {b}B'.format(d=commitlog_dir, b=commitlogs_size))
-        self.assertGreaterEqual(1024 ** 2, commitlogs_size)
+        self.assertGreaterEqual(commitlogs_size, 1024 ** 2)
 
         debug(list(os.walk(commitlog_dir)))
 
