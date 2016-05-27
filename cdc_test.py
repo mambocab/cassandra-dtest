@@ -212,11 +212,11 @@ class TestCDC(Tester):
 
             # Here, we track the number of inserted values by getting the
             # number of successfully completed statements...
-            rows_loaded += len((br for br in batch_results if br[0]))
+            rows_loaded += len([br for br in batch_results if br[0]])
             # then, we make sure that the only failures are the expected
             # WriteFailures.
-            self.assertEqual((), (result for (success, result) in batch_results
-                                  if not success and not isinstance(result, WriteFailure)))
+            self.assertEqual([], [result for (success, result) in batch_results
+                                  if not success and not isinstance(result, WriteFailure)])
             # Finally, if we find a WriteFailure, that means we've inserted all
             # the CDC data we can and so we flip error_found to exit the loop.
             if any(type(result) == WriteFailure for (_, result) in batch_results):
@@ -233,6 +233,25 @@ class TestCDC(Tester):
         self.assertGreaterEqual(commitlogs_size, 1024 ** 2)
 
         debug(list(os.walk(commitlog_dir)))
+
+        # We should get a WriteFailure when trying to write to the CDC table
+        # that's filled the designated CDC space...
+        with self.assertRaises(WriteFailure):
+            session.execute(
+                'INSERT INTO ' + ks_name + '.' + full_cdc_table_name + ' '
+                '(a, b) VALUES (uuid(), uuid())'
+            )
+        # or any CDC table, for that matter.
+        with self.assertRaises(WriteFailure):
+            session.execute(
+                'INSERT INTO ' + ks_name + '.' + emtpy_cdc_table_name + ' '
+                '(a, b) VALUES (uuid(), uuid())'
+            )
+        # But writing to non-CDC tables should succeed.
+        session.execute(
+            'INSERT INTO ' + ks_name + '.' + non_cdc_table_name + ' '
+            '(a, b) VALUES (uuid(), uuid())'
+        )
 
 
 """
