@@ -18,18 +18,23 @@ from dtest import Tester, debug
 from tools import known_failure, rows_to_list, since
 
 
-class TestCommitLog(Tester):
+class CommitLogTestBase(Tester):
     """
     CommitLog Tests
     """
+    __test__, cdc = False, None
 
     def __init__(self, *argv, **kwargs):
         kwargs['cluster_options'] = {'start_rpc': 'true'}
-        super(TestCommitLog, self).__init__(*argv, **kwargs)
+        super(CommitLogTestBase, self).__init__(*argv, **kwargs)
         self.allow_log_errors = True
 
     def setUp(self):
-        super(TestCommitLog, self).setUp()
+        self.assertIsNotNone(
+            self.cdc,
+            'CommitLogTestBase subclasses must be instantiated as testing CDC or non-CDC clusters'
+        )
+        super(CommitLogTestBase, self).setUp()
         self.cluster.populate(1)
         [self.node1] = self.cluster.nodelist()
 
@@ -37,12 +42,14 @@ class TestCommitLog(Tester):
         # Some of the tests change commitlog permissions to provoke failure
         # so this changes them back so we can delete them.
         self._change_commitlog_perms(stat.S_IWRITE | stat.S_IREAD | stat.S_IEXEC)
-        super(TestCommitLog, self).tearDown()
+        super(CommitLogTestBase, self).tearDown()
 
     def prepare(self, configuration=None, create_test_keyspace=True, **kwargs):
         if configuration is None:
             configuration = {}
         default_conf = {'commitlog_sync_period_in_ms': 1000}
+        if self.cdc:
+            default_conf['cdc_enabled'] = True
 
         set_conf = dict(default_conf, **configuration)
         debug('setting commitlog configuration with the following values: '
@@ -637,3 +644,7 @@ class TestCommitLog(Tester):
         node.watch_log_for(expected_error, from_mark=mark)
         with self.assertRaises(TimeoutError):
             node.wait_for_binary_interface(from_mark=mark, timeout=20)
+
+
+class TestCommitLogNonCDC(CommitLogTestBase):
+    __test__, cdc = True, False
