@@ -3,13 +3,14 @@ from __future__ import division
 import os
 import time
 from itertools import izip as zip
+import shutil
 
 from cassandra import WriteFailure
 from cassandra.concurrent import (execute_concurrent,
                                   execute_concurrent_with_args)
 
 from dtest import Tester, debug
-from tools import since
+from tools import rows_to_list, since
 from utils.fileutils import size_of_files_in_dir
 from utils.funcutils import get_rate_limited_function
 
@@ -339,6 +340,56 @@ class TestCDC(Tester):
         saved_cdc_raw_contents_dir_name = os.path.join(os.getcwd(), '.saved_cdc_raw')
         self._create_temp_dir(saved_cdc_raw_contents_dir_name)
 
+    def test_cdc_data_available_in_cdc_raw(self):
+        ks_name, cdc_table_name = 'ks', 'full_cdc_tab'
+        non_cdc_table_name = 'non_cdc_tab'
+        configuration_overrides = {
+            # Make CDC space as small as possible so we can fill it quickly.
+            'cdc_total_space_in_mb': 16,
+        }
+        node, session = self.prepare(
+            ks_name=ks_name,
+            table_name=cdc_table_name, cdc_enabled_table=True,
+            data_schema='(a uuid PRIMARY KEY, b uuid, c uuid, d uuid, e uuid, '
+                        'f uuid, g uuid, h uuid, i uuid, j uuid, k uuid, l uuid, '
+                        'm uuid, n uuid, o uuid, p uuid)',
+            configuration_overrides=configuration_overrides
+        )
+        cdc_prepared_insert = session.prepare(
+            'INSERT INTO ' + ks_name + '.' + cdc_table_name +
+            ' (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) '
+            'VALUES (uuid(), uuid(), uuid(), uuid(), uuid(), '
+            'uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), '
+            'uuid(), uuid(), uuid(), uuid(), uuid())'
+        )
+        session.execute(
+            'CREATE TABLE ' + ks_name + '.' + non_cdc_table_name + ' '
+            '(a uuid PRIMARY KEY, b uuid, c uuid, d uuid, e uuid, '
+            'f uuid, g uuid, h uuid, i uuid, j uuid, k uuid, l uuid, '
+            'm uuid, n uuid, o uuid, p uuid)'
+        )
+
+        non_cdc_prepared_insert = session.prepare(
+            'INSERT INTO ' + ks_name + '.' + non_cdc_table_name + ' '
+            '(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) '
+            'VALUES (uuid(), uuid(), uuid(), uuid(), uuid(), '
+            'uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), '
+            'uuid(), uuid(), uuid(), uuid(), uuid())'
+        )
+
+        execute_concurrent(session, ((cdc_prepared_insert, ()) for _ in range(10000)),
+                           concurrency=500, raise_on_first_error=True)
+        execute_concurrent(session, ((non_cdc_prepared_insert, ()) for _ in range(10000)),
+                           concurrency=500, raise_on_first_error=True)
+
+        data_in_cdc_table_before_restart = rows_to_list(
+            session.execute('SELECT * FROM ' + ks_name + '.' + cdc_table_name)
+        )
+
+        # Create a temporary directory for saving off cdc_raw segments
+        saved_cdc_raw_contents_dir_name = os.path.join(os.getcwd(), '.saved_cdc_raw')
+        self._create_temp_dir(saved_cdc_raw_contents_dir_name)
+
         # Save cdc_raw files off to temporary directory
         raw_dir = os.path.join(node.get_path(), 'cdc_raw')
         cdc_raw_files = os.listdir(raw_dir)
@@ -389,7 +440,7 @@ class TestCDC(Tester):
         # All data that was in CDC tables should have been copied to cdc_raw,
         # then used in commitlog replay, so it should be back in the cluster.
         self.assertLessEqual(
-            set(cdc_data),
+            set(data_in_cdc_table_before_restart),
             set(data_in_cdc_table_after_restart),
             # The message on failure is too long, since cdc_data is thousands
             # of items, so we print something else here
