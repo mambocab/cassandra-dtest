@@ -335,19 +335,63 @@ class TestCDC(Tester):
         node.flush()
         self.assertEqual(pre_non_cdc_write_cdc_raw_segments, _get_cdc_raw_files(node.get_path()))
 
-    # TODO: add tests to determine that CDC data is correctly flushed to
-    # cdc_raw and not discarded. Our basic goal is to write dataset A to CDC
-    # tables and dataset B to non-CDC tables, flush, then check that a superset
-    # of data A is available to a client in cdc_raw. We can do this by:
-    #   - writing a mixed CDC/non-CDC dataset, tracking all data that should be
-    #     exposed via CDC,
-    #   - flushing,
-    #   - saving off the contents of cdc_raw,
-    #   - shutting down the cluster,
-    #   - starting a new cluster,
-    #   - initializing schema as necessary,
-    #   - shutting down the new cluster,
-    #   - moving the saved cdc_raw contents to commitlog directories,
-    #   - starting the new cluster to commitlog replay, then
-    #   - asserting all data that should have been exposed via CDC is in the
-    #     table(s) that have been written to tables in the new cluster.
+        # Create a temporary directory for saving off cdc_raw segments
+        saved_cdc_raw_contents_dir_name = os.path.join(os.getcwd(), '.saved_cdc_raw')
+        self._create_temp_dir(saved_cdc_raw_contents_dir_name)
+
+        # Save cdc_raw files off to temporary directory
+        raw_dir = os.path.join(node.get_path(), 'cdc_raw')
+        cdc_raw_files = os.listdir(raw_dir)
+        debug('saving {n} files from cdc_raw'.format(n=len(cdc_raw_files)))
+        for original_cdc_raw_filename in cdc_raw_files:
+            # (it'd be nice to just ln this, but we do a copy for Windows compat)
+            shutil.copy2(
+                os.path.join(raw_dir, original_cdc_raw_filename),
+                os.path.join(saved_cdc_raw_contents_dir_name, original_cdc_raw_filename)
+            )
+
+        # Start clean so we can "import" commitlog files
+        session.execute('DROP KEYSPACE ' + ks_name)
+        self.create_ks(session, ks_name, rf=1)
+        session.execute('CREATE TABLE ' + ks_name + '.' + cdc_table_name + ' '
+                        '(a uuid PRIMARY KEY, b uuid) '
+                        'WITH CDC = true')
+        session.execute('CREATE TABLE ' + ks_name + '.' + non_cdc_table_name + ' '
+                        '(a uuid PRIMARY KEY, b uuid)')
+
+        # "Import" commitlog files by stopping the node...
+        node.stop()
+        # moving the saved cdc_raw contents to commitlog directories,
+        for cdc_raw_copy_filename in os.listdir(saved_cdc_raw_contents_dir_name):
+            # (again, it'd be nice to just ln this, but we do this for Windows compat)
+            shutil.copy2(
+                os.path.join(saved_cdc_raw_contents_dir_name, cdc_raw_copy_filename),
+                os.path.join(node.get_path(), 'commitlogs')
+            )
+        # then starting the node again to trigger commitlog replay, which
+        # should replay the cdc_raw files we moved to commitlogs into
+        # memtables.
+        node.start(wait_for_binary_proto=True)
+
+        # Now for final assertions. First, lets get the data that's been loaded by the
+        # replay maneuver above and print some statistics about it:
+        session = self.patient_cql_connection(node)
+        data_in_cdc_table_after_restart = rows_to_list(
+            session.execute('SELECT * FROM ' + ks_name + '.' + cdc_table_name)
+        )
+        data_in_non_cdc_table_after_restart = rows_to_list(
+            session.execute('SELECT * FROM ' + ks_name + '.' + non_cdc_table_name)
+        )
+        debug('found {cdc} values in CDC table and {noncdc} values in non-CDC '
+              'table'.format(cdc=len(data_in_cdc_table_after_restart),
+                             noncdc=len(data_in_non_cdc_table_after_restart)))
+        # Then we assert that the CDC data that we expect to be there is there.
+        # All data that was in CDC tables should have been copied to cdc_raw,
+        # then used in commitlog replay, so it should be back in the cluster.
+        self.assertLessEqual(
+            set(cdc_data),
+            set(data_in_cdc_table_after_restart),
+            # The message on failure is too long, since cdc_data is thousands
+            # of items, so we print something else here
+            msg='not all expected data selected'
+        )
