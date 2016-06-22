@@ -420,20 +420,8 @@ class TestCDC(Tester):
             )
 
         # Start clean so we can "import" commitlog files
-        session.execute('DROP KEYSPACE ' + ks_name)
-        self.create_ks(session, ks_name, rf=1)
-        session.execute(
-            'CREATE TABLE ' + ks_name + '.' + cdc_table_name + ' '
-            '(a uuid PRIMARY KEY, b uuid, c uuid, d uuid, e uuid, '
-            'f uuid, g uuid, h uuid, i uuid, j uuid, k uuid, l uuid, '
-            'm uuid, n uuid, o uuid, p uuid)'
-        )
-        session.execute(
-            'CREATE TABLE ' + ks_name + '.' + non_cdc_table_name + ' '
-            '(a uuid PRIMARY KEY, b uuid, c uuid, d uuid, e uuid, '
-            'f uuid, g uuid, h uuid, i uuid, j uuid, k uuid, l uuid, '
-            'm uuid, n uuid, o uuid, p uuid)'
-        )
+        session.execute('TRUNCATE ' + ks_name + '.' + cdc_table_name)
+        session.execute('TRUNCATE ' + ks_name + '.' + non_cdc_table_name)
 
         # "Import" commitlog files by stopping the node...
         node.stop()
