@@ -67,6 +67,21 @@ class TestCDC(Tester):
     provides a view of the commitlog on tables for which it is enabled.
     """
 
+    def _create_temp_dir(self, dir_name, verbose=True):
+        """
+        Create a directory that will be deleted when this test class is torn
+        down.
+        """
+        if verbose:
+            debug('creating ' + dir_name)
+        os.mkdir(dir_name)
+
+        def debug_and_rmtree():
+            shutil.rmtree(dir_name)
+            debug(dir_name + ' removed')
+
+        self.addCleanup(debug_and_rmtree)
+
     def prepare(self, ks_name,
                 table_name=None, cdc_enabled_table=None,
                 data_schema=None,
@@ -385,15 +400,18 @@ class TestCDC(Tester):
         data_in_cdc_table_before_restart = rows_to_list(
             session.execute('SELECT * FROM ' + ks_name + '.' + cdc_table_name)
         )
+        debug('{} rows in CDC table'.format(len(data_in_cdc_table_before_restart)))
+        self.assertEqual(10000, len(data_in_cdc_table_before_restart))
 
         # Create a temporary directory for saving off cdc_raw segments
         saved_cdc_raw_contents_dir_name = os.path.join(os.getcwd(), '.saved_cdc_raw')
         self._create_temp_dir(saved_cdc_raw_contents_dir_name)
 
         # Save cdc_raw files off to temporary directory
+        node.flush()
         raw_dir = os.path.join(node.get_path(), 'cdc_raw')
         cdc_raw_files = os.listdir(raw_dir)
-        debug('saving {n} files from cdc_raw'.format(n=len(cdc_raw_files)))
+        debug('saving {n} file(s) from cdc_raw'.format(n=len(cdc_raw_files)))
         for original_cdc_raw_filename in cdc_raw_files:
             # (it'd be nice to just ln this, but we do a copy for Windows compat)
             shutil.copy2(
@@ -404,16 +422,26 @@ class TestCDC(Tester):
         # Start clean so we can "import" commitlog files
         session.execute('DROP KEYSPACE ' + ks_name)
         self.create_ks(session, ks_name, rf=1)
-        session.execute('CREATE TABLE ' + ks_name + '.' + cdc_table_name + ' '
-                        '(a uuid PRIMARY KEY, b uuid) '
-                        'WITH CDC = true')
-        session.execute('CREATE TABLE ' + ks_name + '.' + non_cdc_table_name + ' '
-                        '(a uuid PRIMARY KEY, b uuid)')
+        session.execute(
+            'CREATE TABLE ' + ks_name + '.' + cdc_table_name + ' '
+            '(a uuid PRIMARY KEY, b uuid, c uuid, d uuid, e uuid, '
+            'f uuid, g uuid, h uuid, i uuid, j uuid, k uuid, l uuid, '
+            'm uuid, n uuid, o uuid, p uuid)'
+        )
+        session.execute(
+            'CREATE TABLE ' + ks_name + '.' + non_cdc_table_name + ' '
+            '(a uuid PRIMARY KEY, b uuid, c uuid, d uuid, e uuid, '
+            'f uuid, g uuid, h uuid, i uuid, j uuid, k uuid, l uuid, '
+            'm uuid, n uuid, o uuid, p uuid)'
+        )
 
         # "Import" commitlog files by stopping the node...
         node.stop()
         # moving the saved cdc_raw contents to commitlog directories,
+        for commitlog_file in _get_commitlog_files(node.get_path()):
+            os.remove(commitlog_file)
         for cdc_raw_copy_filename in os.listdir(saved_cdc_raw_contents_dir_name):
+            debug('copying back ' + cdc_raw_copy_filename)
             # (again, it'd be nice to just ln this, but we do this for Windows compat)
             shutil.copy2(
                 os.path.join(saved_cdc_raw_contents_dir_name, cdc_raw_copy_filename),
@@ -423,6 +451,7 @@ class TestCDC(Tester):
         # should replay the cdc_raw files we moved to commitlogs into
         # memtables.
         node.start(wait_for_binary_proto=True)
+        debug('node successfully started')
 
         # Now for final assertions. First, lets get the data that's been loaded by the
         # replay maneuver above and print some statistics about it:
@@ -439,9 +468,9 @@ class TestCDC(Tester):
         # Then we assert that the CDC data that we expect to be there is there.
         # All data that was in CDC tables should have been copied to cdc_raw,
         # then used in commitlog replay, so it should be back in the cluster.
-        self.assertLessEqual(
-            set(data_in_cdc_table_before_restart),
-            set(data_in_cdc_table_after_restart),
+        self.assertEqual(
+            data_in_cdc_table_before_restart,
+            data_in_cdc_table_after_restart,
             # The message on failure is too long, since cdc_data is thousands
             # of items, so we print something else here
             msg='not all expected data selected'
