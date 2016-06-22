@@ -451,7 +451,9 @@ class TestCDC(Tester):
         # should replay the cdc_raw files we moved to commitlogs into
         # memtables.
         node.start(wait_for_binary_proto=True)
-        debug('node successfully started')
+        debug('node successfully started; waiting on log replay')
+        node.grep_log("Log replay complete")
+        debug('log replay complete')
 
         # Now for final assertions. First, lets get the data that's been loaded by the
         # replay maneuver above and print some statistics about it:
