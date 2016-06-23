@@ -23,13 +23,14 @@ _16_uuid_column_spec = (
 )
 
 
-_get_16_uuid_insert_stmt = (
-    'INSERT INTO {ks_name}.{table_name} '
-    '(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) '
-    'VALUES (uuid(), uuid(), uuid(), uuid(), uuid(), '
-    'uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), '
-    'uuid(), uuid(), uuid(), uuid(), uuid())'
-).format
+def _get_16_uuid_insert_stmt(ks_name, table_name):
+    return (
+        'INSERT INTO {ks_name}.{table_name} '
+        '(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) '
+        'VALUES (uuid(), uuid(), uuid(), uuid(), uuid(), '
+        'uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), '
+        'uuid(), uuid(), uuid(), uuid(), uuid())'
+    ).format(ks_name=ks_name, table_name=table_name)
 
 
 def _get_create_table_statement(ks_name, table_name, column_spec, options=None):
@@ -236,12 +237,7 @@ class TestCDC(Tester):
             column_spec=_16_uuid_column_spec,
             configuration_overrides=configuration_overrides
         )
-        insert_stmt = session.prepare(
-            'INSERT INTO ' + ks_name + '.' + full_cdc_table_name +
-            ' (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) '
-            'VALUES (uuid(), uuid(), uuid(), uuid(), uuid(), '
-            'uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), '
-            'uuid(), uuid(), uuid(), uuid(), uuid())')
+        insert_stmt = session.prepare(_get_16_uuid_insert_stmt(ks_name, full_cdc_table_name))
 
         # Later, we'll also make assertions about the behavior of non-CDC
         # tables, so we create one here.
@@ -332,22 +328,10 @@ class TestCDC(Tester):
         # We should get a WriteFailure when trying to write to the CDC table
         # that's filled the designated CDC space...
         with self.assertRaises(WriteFailure):
-            session.execute(
-                'INSERT INTO ' + ks_name + '.' + full_cdc_table_name + ' '
-                '(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) '
-                'VALUES (uuid(), uuid(), uuid(), uuid(), uuid(), '
-                'uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), '
-                'uuid(), uuid(), uuid(), uuid(), uuid())'
-            )
+            session.execute(_get_16_uuid_insert_stmt(ks_name, full_cdc_table_name))
         # or any CDC table.
         with self.assertRaises(WriteFailure):
-            session.execute(
-                'INSERT INTO ' + ks_name + '.' + emtpy_cdc_table_name + ' '
-                '(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) '
-                'VALUES (uuid(), uuid(), uuid(), uuid(), uuid(), '
-                'uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), '
-                'uuid(), uuid(), uuid(), uuid(), uuid())'
-            )
+            session.execute(_get_16_uuid_insert_stmt(ks_name, emtpy_cdc_table_name))
 
         # Now we test for behaviors of non-CDC tables when we've exceeded
         # cdc_total_space_in_mb.
@@ -362,13 +346,7 @@ class TestCDC(Tester):
 
         # Check that writing to non-CDC tables succeeds even when writes to CDC
         # tables are rejected:
-        non_cdc_prepared_insert = session.prepare(
-            'INSERT INTO ' + ks_name + '.' + non_cdc_table_name + ' '
-            '(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) '
-            'VALUES (uuid(), uuid(), uuid(), uuid(), uuid(), '
-            'uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), '
-            'uuid(), uuid(), uuid(), uuid(), uuid())'
-        )
+        non_cdc_prepared_insert = session.prepare(_get_16_uuid_insert_stmt(ks_name, non_cdc_table_name))
         session.execute(non_cdc_prepared_insert, ())
 
         # Check the following property: any new commitlog segments written to
@@ -420,13 +398,7 @@ class TestCDC(Tester):
             gc_grace_seconds=0,
             table_id=cdc_table_id
         )
-        cdc_prepared_insert = session.prepare(
-            'INSERT INTO ' + ks_name + '.' + cdc_table_name +
-            ' (a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) '
-            'VALUES (uuid(), uuid(), uuid(), uuid(), uuid(), '
-            'uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), '
-            'uuid(), uuid(), uuid(), uuid(), uuid())'
-        )
+        cdc_prepared_insert = session.prepare(_get_16_uuid_insert_stmt(ks_name, cdc_table_name))
         session.execute(
             _get_create_table_statement(
                 ks_name, non_cdc_table_name,
@@ -435,13 +407,7 @@ class TestCDC(Tester):
             )
         )
 
-        non_cdc_prepared_insert = session.prepare(
-            'INSERT INTO ' + ks_name + '.' + non_cdc_table_name + ' '
-            '(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) '
-            'VALUES (uuid(), uuid(), uuid(), uuid(), uuid(), '
-            'uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), '
-            'uuid(), uuid(), uuid(), uuid(), uuid())'
-        )
+        non_cdc_prepared_insert = session.prepare(_get_16_uuid_insert_stmt(ks_name, non_cdc_table_name))
 
         execute_concurrent(session, ((cdc_prepared_insert, ()) for _ in range(10000)),
                            concurrency=500, raise_on_first_error=True)
