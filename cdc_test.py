@@ -23,6 +23,15 @@ _16_uuid_column_spec = (
 )
 
 
+_get_16_uuid_insert_stmt = (
+    'INSERT INTO {ks_name}.{table_name} '
+    '(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p) '
+    'VALUES (uuid(), uuid(), uuid(), uuid(), uuid(), '
+    'uuid(), uuid(), uuid(), uuid(), uuid(), uuid(), '
+    'uuid(), uuid(), uuid(), uuid(), uuid())'
+).format
+
+
 def _get_create_table_statement(ks_name, table_name, column_spec, options=None):
     if options:
         options_pairs = ('{k}={v}'.format(k=k, v=v) for (k, v) in options.iteritems())
