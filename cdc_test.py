@@ -1,5 +1,6 @@
 from __future__ import division
 
+from collections import namedtuple
 import os
 import time
 from itertools import izip as zip
@@ -44,6 +45,32 @@ def _get_create_table_statement(ks_name, table_name, column_spec, options=None):
         'CREATE TABLE ' + ks_name + '.' + table_name + ' '
         '(' + column_spec + ') ' + options_string
     )
+
+
+TableInfoNamedtuple = namedtuple('TableInfoNamedtuple', [
+    # required data
+    'ks_name', 'table_name', 'column_spec',
+    # optional data
+    'options', 'insert_stmt',
+    # derived data
+    'name', 'create_stmt'
+])
+class TableInfo(TableInfoNamedtuple):
+    __slots__ = ()
+
+    def __new__(cls, ks_name, table_name, column_spec, options=None, insert_stmt=None):
+        name = ks_name + '.' + table_name
+        create_stmt = _get_create_table_statement(ks_name, table_name, column_spec, options)
+        self = super(TableInfo, cls).__new__(
+            cls,
+            # required
+            ks_name=ks_name, table_name=table_name, column_spec=column_spec,
+            # optional
+            options=options, insert_stmt=insert_stmt,
+            # derived
+            name=name, create_stmt=create_stmt
+        )
+        return self
 
 
 def _set_cdc_on_table(session, table_name, value, ks_name=None):
@@ -225,7 +252,13 @@ class TestCDC(Tester):
         avoid running multiple tests that each write 1MB of data to fill
         cdc_total_space_in_mb.
         """
-        ks_name, full_cdc_table_name = 'ks', 'full_cdc_tab'
+        ks_name = 'ks'
+        full_cdc_table_info = TableInfo(
+            ks_name=ks_name, table_name='full_cdc_tab',
+            column_spec=_16_uuid_column_spec,
+            insert_stmt=_get_16_uuid_insert_stmt(ks_name, 'full_cdc_tab'),
+            options={'cdc': 'true'}
+        )
 
         configuration_overrides = {
             # Make CDC space as small as possible so we can fill it quickly.
@@ -233,11 +266,10 @@ class TestCDC(Tester):
         }
         node, session = self.prepare(
             ks_name=ks_name,
-            table_name=full_cdc_table_name, cdc_enabled_table=True,
-            column_spec=_16_uuid_column_spec,
             configuration_overrides=configuration_overrides
         )
-        insert_stmt = session.prepare(_get_16_uuid_insert_stmt(ks_name, full_cdc_table_name))
+        session.execute(full_cdc_table_info.create_stmt)
+        insert_stmt = session.prepare(full_cdc_table_info.insert_stmt)
 
         # Later, we'll also make assertions about the behavior of non-CDC
         # tables, so we create one here.
@@ -328,7 +360,7 @@ class TestCDC(Tester):
         # We should get a WriteFailure when trying to write to the CDC table
         # that's filled the designated CDC space...
         with self.assertRaises(WriteFailure):
-            session.execute(_get_16_uuid_insert_stmt(ks_name, full_cdc_table_name))
+            session.execute(_get_16_uuid_insert_stmt(ks_name, full_cdc_table_info.table_name))
         # or any CDC table.
         with self.assertRaises(WriteFailure):
             session.execute(_get_16_uuid_insert_stmt(ks_name, emtpy_cdc_table_name))
