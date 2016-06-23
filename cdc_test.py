@@ -379,7 +379,7 @@ class TestCDC(Tester):
         # Check that writing to non-CDC tables succeeds even when writes to CDC
         # tables are rejected:
         non_cdc_prepared_insert = session.prepare(non_cdc_table_info.insert_stmt)
-        session.execute(non_cdc_prepared_insert, ())
+        session.execute(non_cdc_prepared_insert, ())  # should not raise an exception
 
         # Check the following property: any new commitlog segments written to
         # after cdc_raw has reached its maximum configured size should not be
