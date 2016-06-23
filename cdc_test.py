@@ -48,11 +48,11 @@ def _get_create_table_statement(ks_name, table_name, column_spec, options=None):
 
 
 TableInfoNamedtuple = namedtuple('TableInfoNamedtuple', [
-    # required data
+    # required
     'ks_name', 'table_name', 'column_spec',
-    # optional data
+    # optional
     'options', 'insert_stmt',
-    # derived data
+    # derived
     'name', 'create_stmt'
 ])
 class TableInfo(TableInfoNamedtuple):
