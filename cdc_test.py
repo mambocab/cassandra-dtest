@@ -428,7 +428,6 @@ class TestCDC(Tester):
                      'id': uuid.uuid4()}
         )
         session.execute(cdc_table_info.create_stmt)
-        cdc_prepared_insert = session.prepare(cdc_table_info.insert_stmt)
 
         non_cdc_table_info = TableInfo(
             ks_name=ks_name, table_name='non_cdc_tab',
@@ -438,10 +437,10 @@ class TestCDC(Tester):
         )
         session.execute(non_cdc_table_info.create_stmt)
 
-        non_cdc_prepared_insert = session.prepare(non_cdc_table_info.insert_stmt)
-
+        cdc_prepared_insert = session.prepare(cdc_table_info.insert_stmt)
         execute_concurrent(session, ((cdc_prepared_insert, ()) for _ in range(10000)),
                            concurrency=500, raise_on_first_error=True)
+        non_cdc_prepared_insert = session.prepare(non_cdc_table_info.insert_stmt)
         execute_concurrent(session, ((non_cdc_prepared_insert, ()) for _ in range(10000)),
                            concurrency=500, raise_on_first_error=True)
 
