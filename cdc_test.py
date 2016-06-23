@@ -84,6 +84,7 @@ class TestCDC(Tester):
 
     def prepare(self, ks_name,
                 table_name=None, cdc_enabled_table=None,
+                gc_grace_seconds=None,
                 data_schema=None,
                 configuration_overrides=None):
         """
@@ -115,6 +116,8 @@ class TestCDC(Tester):
             stmt = ('CREATE TABLE ' + table_name +
                     ' ' + data_schema + ' '
                     'WITH CDC = ' + ('true' if cdc_enabled_table else 'false'))
+            if gc_grace_seconds is not None:
+                stmt += ' AND gc_grace_seconds={}'.format(gc_grace_seconds)
             debug(stmt)
             session.execute(stmt)
 
@@ -368,7 +371,8 @@ class TestCDC(Tester):
             data_schema='(a uuid PRIMARY KEY, b uuid, c uuid, d uuid, e uuid, '
                         'f uuid, g uuid, h uuid, i uuid, j uuid, k uuid, l uuid, '
                         'm uuid, n uuid, o uuid, p uuid)',
-            configuration_overrides=configuration_overrides
+            configuration_overrides=configuration_overrides,
+            gc_grace_seconds=0,
         )
         cdc_prepared_insert = session.prepare(
             'INSERT INTO ' + ks_name + '.' + cdc_table_name +
@@ -381,7 +385,7 @@ class TestCDC(Tester):
             'CREATE TABLE ' + ks_name + '.' + non_cdc_table_name + ' '
             '(a uuid PRIMARY KEY, b uuid, c uuid, d uuid, e uuid, '
             'f uuid, g uuid, h uuid, i uuid, j uuid, k uuid, l uuid, '
-            'm uuid, n uuid, o uuid, p uuid)'
+            'm uuid, n uuid, o uuid, p uuid) WITH gc_grace_seconds=0'
         )
 
         non_cdc_prepared_insert = session.prepare(
@@ -402,6 +406,9 @@ class TestCDC(Tester):
         )
         debug('{} rows in CDC table'.format(len(data_in_cdc_table_before_restart)))
         self.assertEqual(10000, len(data_in_cdc_table_before_restart))
+        data_in_non_cdc_table_before_restart = rows_to_list(
+            session.execute('SELECT * FROM ' + ks_name + '.' + non_cdc_table_name)
+        )
 
         # Create a temporary directory for saving off cdc_raw segments
         saved_cdc_raw_contents_dir_name = os.path.join(os.getcwd(), '.saved_cdc_raw')
@@ -420,8 +427,16 @@ class TestCDC(Tester):
             )
 
         # Start clean so we can "import" commitlog files
-        session.execute('TRUNCATE ' + ks_name + '.' + cdc_table_name)
-        session.execute('TRUNCATE ' + ks_name + '.' + non_cdc_table_name)
+        for key in [x[0] for x in data_in_cdc_table_before_restart]:
+            session.execute(
+                'DELETE FROM ' + ks_name + '.' + cdc_table_name + ' '
+                'WHERE a = {}'.format(key)
+            )
+        for key in [x[0] for x in data_in_non_cdc_table_before_restart]:
+            session.execute(
+                'DELETE FROM ' + ks_name + '.' + non_cdc_table_name + ' '
+                'WHERE a = {}'.format(key)
+            )
 
         # "Import" commitlog files by stopping the node...
         node.stop()
