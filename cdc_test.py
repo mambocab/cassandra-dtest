@@ -4,6 +4,7 @@ import os
 import time
 from itertools import izip as zip
 import shutil
+import uuid
 
 from cassandra import WriteFailure
 from cassandra.concurrent import (execute_concurrent,
@@ -13,6 +14,14 @@ from dtest import Tester, debug
 from tools import rows_to_list, since
 from utils.fileutils import size_of_files_in_dir
 from utils.funcutils import get_rate_limited_function
+
+
+def _get_create_table_statement(ks_name, table_name, column_spec, options=None):
+    options_pairs = ('{k}={v}'.format(k=k, v=v) for (k, v) in options.iteritems())
+    return (
+        'CREATE TABLE ' + ks_name + '.' + table_name + ' (' + column_spec + ') ' +
+        ('WITH ' + ' AND '.join(options_pairs))
+    )
 
 
 def _set_cdc_on_table(session, table_name, value, ks_name=None):
@@ -74,7 +83,15 @@ class TestCDC(Tester):
         """
         if verbose:
             debug('creating ' + dir_name)
-        os.mkdir(dir_name)
+        try:
+            os.mkdir(dir_name)
+        except OSError as e:
+            if 'File exists' in e:
+                debug(dir_name + ' already exists. removing and recreating.')
+                shutil.rmtree(dir_name)
+                os.mkdir(dir_name)
+            else:
+                raise e
 
         def debug_and_rmtree():
             shutil.rmtree(dir_name)
@@ -86,7 +103,8 @@ class TestCDC(Tester):
                 table_name=None, cdc_enabled_table=None,
                 gc_grace_seconds=None,
                 data_schema=None,
-                configuration_overrides=None):
+                configuration_overrides=None,
+                table_id=None):
         """
         Create a 1-node cluster, start it, create a keyspace, and if
         <table_name>, create a table in that keyspace. If <cdc_enabled_table>,
@@ -118,6 +136,8 @@ class TestCDC(Tester):
                     'WITH CDC = ' + ('true' if cdc_enabled_table else 'false'))
             if gc_grace_seconds is not None:
                 stmt += ' AND gc_grace_seconds={}'.format(gc_grace_seconds)
+            if table_id is not None:
+                stmt += ' AND id={}'.format(table_id)
             debug(stmt)
             session.execute(stmt)
 
@@ -365,6 +385,8 @@ class TestCDC(Tester):
             # Make CDC space as small as possible so we can fill it quickly.
             'cdc_total_space_in_mb': 16,
         }
+        # We set ids in advance here so we can easily recreate tables to replay into
+        cdc_table_id, non_cdc_table_id = uuid.uuid4(), uuid.uuid4()
         node, session = self.prepare(
             ks_name=ks_name,
             table_name=cdc_table_name, cdc_enabled_table=True,
@@ -373,6 +395,7 @@ class TestCDC(Tester):
                         'm uuid, n uuid, o uuid, p uuid)',
             configuration_overrides=configuration_overrides,
             gc_grace_seconds=0,
+            table_id=cdc_table_id
         )
         cdc_prepared_insert = session.prepare(
             'INSERT INTO ' + ks_name + '.' + cdc_table_name +
@@ -385,7 +408,8 @@ class TestCDC(Tester):
             'CREATE TABLE ' + ks_name + '.' + non_cdc_table_name + ' '
             '(a uuid PRIMARY KEY, b uuid, c uuid, d uuid, e uuid, '
             'f uuid, g uuid, h uuid, i uuid, j uuid, k uuid, l uuid, '
-            'm uuid, n uuid, o uuid, p uuid) WITH gc_grace_seconds=0'
+            'm uuid, n uuid, o uuid, p uuid) WITH gc_grace_seconds=0 '
+            'AND id={}'.format(non_cdc_table_id)
         )
 
         non_cdc_prepared_insert = session.prepare(
@@ -406,9 +430,6 @@ class TestCDC(Tester):
         )
         debug('{} rows in CDC table'.format(len(data_in_cdc_table_before_restart)))
         self.assertEqual(10000, len(data_in_cdc_table_before_restart))
-        data_in_non_cdc_table_before_restart = rows_to_list(
-            session.execute('SELECT * FROM ' + ks_name + '.' + non_cdc_table_name)
-        )
 
         # Create a temporary directory for saving off cdc_raw segments
         saved_cdc_raw_contents_dir_name = os.path.join(os.getcwd(), '.saved_cdc_raw')
@@ -419,24 +440,35 @@ class TestCDC(Tester):
         raw_dir = os.path.join(node.get_path(), 'cdc_raw')
         cdc_raw_files = os.listdir(raw_dir)
         debug('saving {n} file(s) from cdc_raw'.format(n=len(cdc_raw_files)))
+        copy_out_of_raw_start_time = time.time()
         for original_cdc_raw_filename in cdc_raw_files:
             # (it'd be nice to just ln this, but we do a copy for Windows compat)
             shutil.copy2(
                 os.path.join(raw_dir, original_cdc_raw_filename),
                 os.path.join(saved_cdc_raw_contents_dir_name, original_cdc_raw_filename)
             )
+        debug('first copy took {0:.2f}s'.format(time.time() - copy_out_of_raw_start_time))
 
         # Start clean so we can "import" commitlog files
-        for key in [x[0] for x in data_in_cdc_table_before_restart]:
-            session.execute(
-                'DELETE FROM ' + ks_name + '.' + cdc_table_name + ' '
-                'WHERE a = {}'.format(key)
-            )
-        for key in [x[0] for x in data_in_non_cdc_table_before_restart]:
-            session.execute(
-                'DELETE FROM ' + ks_name + '.' + non_cdc_table_name + ' '
-                'WHERE a = {}'.format(key)
-            )
+        delete_1_start_time = time.time()
+        session.execute('DROP TABLE ' + ks_name + '.' + cdc_table_name)
+        session.execute(
+            'CREATE TABLE ' + ks_name + '.' + cdc_table_name + ' '
+            '(a uuid PRIMARY KEY, b uuid, c uuid, d uuid, e uuid, '
+            'f uuid, g uuid, h uuid, i uuid, j uuid, k uuid, l uuid, '
+            'm uuid, n uuid, o uuid, p uuid) WITH gc_grace_seconds=0 AND id={cdc_table_id}'.format(cdc_table_id=cdc_table_id)
+        )
+        debug('delete 1 took {0:.1f}s'.format(time.time() - delete_1_start_time))
+        delete_2_start_time = time.time()
+        session.execute('DROP TABLE ' + ks_name + '.' + non_cdc_table_name)
+        session.execute(
+            'CREATE TABLE ' + ks_name + '.' + non_cdc_table_name + ' '
+            '(a uuid PRIMARY KEY, b uuid, c uuid, d uuid, e uuid, '
+            'f uuid, g uuid, h uuid, i uuid, j uuid, k uuid, l uuid, '
+            'm uuid, n uuid, o uuid, p uuid) WITH gc_grace_seconds=0 AND id={non_cdc_table_id}'.format(non_cdc_table_id=non_cdc_table_id)
+        )
+        debug('delete 2 took {0:.2f}s'.format(time.time() - delete_2_start_time))
+        self.assertEqual(0, len(list(session.execute('SELECT * FROM ' + ks_name + '.' + non_cdc_table_name))))
 
         # "Import" commitlog files by stopping the node...
         node.stop()
