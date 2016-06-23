@@ -410,23 +410,28 @@ class TestCDC(Tester):
         self.assertEqual(pre_non_cdc_write_cdc_raw_segments, _get_cdc_raw_files(node.get_path()))
 
     def test_cdc_data_available_in_cdc_raw(self):
-        ks_name, cdc_table_name = 'ks', 'full_cdc_tab'
+        ks_name = 'ks'
         non_cdc_table_name = 'non_cdc_tab'
         configuration_overrides = {
             # Make CDC space as small as possible so we can fill it quickly.
             'cdc_total_space_in_mb': 16,
         }
         # We set ids in advance here so we can easily recreate tables to replay into
-        cdc_table_id, non_cdc_table_id = uuid.uuid4(), uuid.uuid4()
+        non_cdc_table_id = uuid.uuid4()
+
         node, session = self.prepare(
             ks_name=ks_name,
-            table_name=cdc_table_name, cdc_enabled_table=True,
-            column_spec=_16_uuid_column_spec,
             configuration_overrides=configuration_overrides,
-            gc_grace_seconds=0,
-            table_id=cdc_table_id
         )
-        cdc_prepared_insert = session.prepare(_get_16_uuid_insert_stmt(ks_name, cdc_table_name))
+        cdc_table_info = TableInfo(
+            ks_name=ks_name, table_name='cdc_tab',
+            column_spec=_16_uuid_column_spec,
+            insert_stmt=_get_16_uuid_insert_stmt(ks_name, 'cdc_tab'),
+            options={'cdc': 'true',
+                     'id': uuid.uuid4()}
+        )
+        session.execute(cdc_table_info.create_stmt)
+        cdc_prepared_insert = session.prepare(cdc_table_info.insert_stmt)
         session.execute(
             _get_create_table_statement(
                 ks_name, non_cdc_table_name,
@@ -443,7 +448,7 @@ class TestCDC(Tester):
                            concurrency=500, raise_on_first_error=True)
 
         data_in_cdc_table_before_restart = rows_to_list(
-            session.execute('SELECT * FROM ' + ks_name + '.' + cdc_table_name)
+            session.execute('SELECT * FROM ' + ks_name + '.' + cdc_table_info.table_name)
         )
         debug('{} rows in CDC table'.format(len(data_in_cdc_table_before_restart)))
         self.assertEqual(10000, len(data_in_cdc_table_before_restart))
@@ -468,16 +473,8 @@ class TestCDC(Tester):
 
         # Start clean so we can "import" commitlog files
         delete_1_start_time = time.time()
-        session.execute('DROP TABLE ' + ks_name + '.' + cdc_table_name)
-        session.execute(
-            _get_create_table_statement(
-                ks_name, cdc_table_name,
-                column_spec=_16_uuid_column_spec,
-                options={'gc_grace_seconds': 0,
-                         'id': cdc_table_id,
-                         'cdc': 'true'}
-            )
-        )
+        session.execute('DROP TABLE ' + ks_name + '.' + cdc_table_info.table_name)
+        session.execute(cdc_table_info.create_stmt)
 
         debug('delete 1 took {0:.1f}s'.format(time.time() - delete_1_start_time))
         delete_2_start_time = time.time()
@@ -517,7 +514,7 @@ class TestCDC(Tester):
         # replay maneuver above and print some statistics about it:
         session = self.patient_cql_connection(node)
         data_in_cdc_table_after_restart = rows_to_list(
-            session.execute('SELECT * FROM ' + ks_name + '.' + cdc_table_name)
+            session.execute('SELECT * FROM ' + ks_name + '.' + cdc_table_info.table_name)
         )
         data_in_non_cdc_table_after_restart = rows_to_list(
             session.execute('SELECT * FROM ' + ks_name + '.' + non_cdc_table_name)
