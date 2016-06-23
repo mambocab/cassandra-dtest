@@ -409,10 +409,6 @@ class TestCDC(Tester):
         node.flush()
         self.assertEqual(pre_non_cdc_write_cdc_raw_segments, _get_cdc_raw_files(node.get_path()))
 
-        # Create a temporary directory for saving off cdc_raw segments
-        saved_cdc_raw_contents_dir_name = os.path.join(os.getcwd(), '.saved_cdc_raw')
-        self._create_temp_dir(saved_cdc_raw_contents_dir_name)
-
     def test_cdc_data_available_in_cdc_raw(self):
         ks_name, cdc_table_name = 'ks', 'full_cdc_tab'
         non_cdc_table_name = 'non_cdc_tab'
