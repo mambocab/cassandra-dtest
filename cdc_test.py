@@ -273,22 +273,22 @@ class TestCDC(Tester):
 
         # Later, we'll also make assertions about the behavior of non-CDC
         # tables, so we create one here.
-        non_cdc_table_name = 'non_cdc_tab'
-        session.execute(_get_create_table_statement(
-            ks_name, non_cdc_table_name,
-            column_spec=_16_uuid_column_spec
-        ))
+        non_cdc_table_info = TableInfo(
+            ks_name=ks_name, table_name='non_cdc_tab',
+            column_spec=_16_uuid_column_spec,
+            insert_stmt=_get_16_uuid_insert_stmt(ks_name, 'non_cdc_tab')
+        )
+        session.execute(non_cdc_table_info.create_stmt)
         # We'll also make assertions about the behavior of CDC tables when
         # other CDC tables have already filled the designated space for CDC
         # commitlogs, so we create the second CDC table here.
-        emtpy_cdc_table_name = 'empty_cdc_tab'
-        session.execute(
-            _get_create_table_statement(
-                ks_name, emtpy_cdc_table_name,
-                column_spec=_16_uuid_column_spec,
-                options={'cdc': 'true'}
-            )
+        empty_cdc_table_info = TableInfo(
+            ks_name=ks_name, table_name='empty_cdc_tab',
+            column_spec=_16_uuid_column_spec,
+            insert_stmt=_get_16_uuid_insert_stmt(ks_name, 'empty_cdc_tab'),
+            options={'cdc': 'true'}
         )
+        session.execute(empty_cdc_table_info.create_stmt)
 
         # Here, we insert values into the first CDC table until we get a
         # WriteFailure. This should happen when the CDC commitlogs take up 1MB
@@ -360,10 +360,10 @@ class TestCDC(Tester):
         # We should get a WriteFailure when trying to write to the CDC table
         # that's filled the designated CDC space...
         with self.assertRaises(WriteFailure):
-            session.execute(_get_16_uuid_insert_stmt(ks_name, full_cdc_table_info.table_name))
+            session.execute(full_cdc_table_info.insert_stmt)
         # or any CDC table.
         with self.assertRaises(WriteFailure):
-            session.execute(_get_16_uuid_insert_stmt(ks_name, emtpy_cdc_table_name))
+            session.execute(empty_cdc_table_info.insert_stmt)
 
         # Now we test for behaviors of non-CDC tables when we've exceeded
         # cdc_total_space_in_mb.
@@ -378,7 +378,7 @@ class TestCDC(Tester):
 
         # Check that writing to non-CDC tables succeeds even when writes to CDC
         # tables are rejected:
-        non_cdc_prepared_insert = session.prepare(_get_16_uuid_insert_stmt(ks_name, non_cdc_table_name))
+        non_cdc_prepared_insert = session.prepare(non_cdc_table_info.insert_stmt)
         session.execute(non_cdc_prepared_insert, ())
 
         # Check the following property: any new commitlog segments written to
