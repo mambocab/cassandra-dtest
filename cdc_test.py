@@ -16,11 +16,23 @@ from utils.fileutils import size_of_files_in_dir
 from utils.funcutils import get_rate_limited_function
 
 
+_16_uuid_column_spec = (
+    'a uuid PRIMARY KEY, b uuid, c uuid, d uuid, e uuid, f uuid, g uuid, '
+    'h uuid, i uuid, j uuid, k uuid, l uuid, m uuid, n uuid, o uuid, '
+    'p uuid'
+)
+
+
 def _get_create_table_statement(ks_name, table_name, column_spec, options=None):
-    options_pairs = ('{k}={v}'.format(k=k, v=v) for (k, v) in options.iteritems())
+    if options:
+        options_pairs = ('{k}={v}'.format(k=k, v=v) for (k, v) in options.iteritems())
+        options_string = 'WITH ' + ' AND '.join(options_pairs)
+    else:
+        options_string = ''
+
     return (
-        'CREATE TABLE ' + ks_name + '.' + table_name + ' (' + column_spec + ') ' +
-        ('WITH ' + ' AND '.join(options_pairs))
+        'CREATE TABLE ' + ks_name + '.' + table_name + ' '
+        '(' + column_spec + ') ' + options_string
     )
 
 
@@ -102,15 +114,15 @@ class TestCDC(Tester):
     def prepare(self, ks_name,
                 table_name=None, cdc_enabled_table=None,
                 gc_grace_seconds=None,
-                data_schema=None,
+                column_spec=None,
                 configuration_overrides=None,
                 table_id=None):
         """
         Create a 1-node cluster, start it, create a keyspace, and if
         <table_name>, create a table in that keyspace. If <cdc_enabled_table>,
-        that table is created with CDC enabled. If <data_schema>, use that
+        that table is created with CDC enabled. If <column_spec>, use that
         string to specify the schema of the table -- for example, a valid value
-        is '(a int PRIMARY KEY, b int)'. The <configuration_overrides> is
+        is 'a int PRIMARY KEY, b int'. The <configuration_overrides> is
         treated as a dict-like object and passed to
         self.cluster.set_configuration_options.
         """
@@ -130,14 +142,18 @@ class TestCDC(Tester):
 
         if table_name is not None:
             self.assertIsNotNone(cdc_enabled_table, 'if creating a table in prepare, must specify whether or not CDC is enabled on it')
-            self.assertIsNotNone(data_schema, 'if creating a table in prepare, must specify its schema')
-            stmt = ('CREATE TABLE ' + table_name +
-                    ' ' + data_schema + ' '
-                    'WITH CDC = ' + ('true' if cdc_enabled_table else 'false'))
+            self.assertIsNotNone(column_spec, 'if creating a table in prepare, must specify its schema')
+            options = {}
             if gc_grace_seconds is not None:
-                stmt += ' AND gc_grace_seconds={}'.format(gc_grace_seconds)
+                options['gc_grace_seconds'] = gc_grace_seconds
             if table_id is not None:
-                stmt += ' AND id={}'.format(table_id)
+                options['id'] = table_id
+            if cdc_enabled_table:
+                options['cdc'] = 'true'
+            stmt = _get_create_table_statement(
+                ks_name, table_name, column_spec,
+                options=options
+            )
             debug(stmt)
             session.execute(stmt)
 
@@ -156,7 +172,7 @@ class TestCDC(Tester):
 
         node, session = self.prepare(ks_name=ks_name, table_name=table_name,
                                      cdc_enabled_table=start_enabled,
-                                     data_schema='(a int PRIMARY KEY, b int)')
+                                     column_spec='a int PRIMARY KEY, b int')
         set_cdc = _get_set_cdc_func(session=session, ks_name=ks_name, table_name=table_name)
 
         insert_stmt = session.prepare('INSERT INTO ' + table_name + ' (a, b) VALUES (?, ?)')
@@ -208,9 +224,7 @@ class TestCDC(Tester):
         node, session = self.prepare(
             ks_name=ks_name,
             table_name=full_cdc_table_name, cdc_enabled_table=True,
-            data_schema='(a uuid PRIMARY KEY, b uuid, c uuid, d uuid, e uuid, '
-                        'f uuid, g uuid, h uuid, i uuid, j uuid, k uuid, l uuid, '
-                        'm uuid, n uuid, o uuid, p uuid)',
+            column_spec=_16_uuid_column_spec,
             configuration_overrides=configuration_overrides
         )
         insert_stmt = session.prepare(
@@ -223,19 +237,21 @@ class TestCDC(Tester):
         # Later, we'll also make assertions about the behavior of non-CDC
         # tables, so we create one here.
         non_cdc_table_name = 'non_cdc_tab'
-        session.execute('CREATE TABLE ' + ks_name + '.' + non_cdc_table_name + ' '
-                        '(a uuid PRIMARY KEY, b uuid, c uuid, d uuid, e uuid, '
-                        'f uuid, g uuid, h uuid, i uuid, j uuid, k uuid, l uuid, '
-                        'm uuid, n uuid, o uuid, p uuid)')
+        session.execute(_get_create_table_statement(
+            ks_name, non_cdc_table_name,
+            column_spec=_16_uuid_column_spec
+        ))
         # We'll also make assertions about the behavior of CDC tables when
         # other CDC tables have already filled the designated space for CDC
         # commitlogs, so we create the second CDC table here.
         emtpy_cdc_table_name = 'empty_cdc_tab'
-        session.execute('CREATE TABLE ' + ks_name + '.' + emtpy_cdc_table_name + ' '
-                        '(a uuid PRIMARY KEY, b uuid, c uuid, d uuid, e uuid, '
-                        'f uuid, g uuid, h uuid, i uuid, j uuid, k uuid, l uuid, '
-                        'm uuid, n uuid, o uuid, p uuid) '
-                        'WITH CDC = true')
+        session.execute(
+            _get_create_table_statement(
+                ks_name, emtpy_cdc_table_name,
+                column_spec=_16_uuid_column_spec,
+                options={'cdc': 'true'}
+            )
+        )
 
         # Here, we insert values into the first CDC table until we get a
         # WriteFailure. This should happen when the CDC commitlogs take up 1MB
@@ -390,9 +406,7 @@ class TestCDC(Tester):
         node, session = self.prepare(
             ks_name=ks_name,
             table_name=cdc_table_name, cdc_enabled_table=True,
-            data_schema='(a uuid PRIMARY KEY, b uuid, c uuid, d uuid, e uuid, '
-                        'f uuid, g uuid, h uuid, i uuid, j uuid, k uuid, l uuid, '
-                        'm uuid, n uuid, o uuid, p uuid)',
+            column_spec=_16_uuid_column_spec,
             configuration_overrides=configuration_overrides,
             gc_grace_seconds=0,
             table_id=cdc_table_id
@@ -405,11 +419,11 @@ class TestCDC(Tester):
             'uuid(), uuid(), uuid(), uuid(), uuid())'
         )
         session.execute(
-            'CREATE TABLE ' + ks_name + '.' + non_cdc_table_name + ' '
-            '(a uuid PRIMARY KEY, b uuid, c uuid, d uuid, e uuid, '
-            'f uuid, g uuid, h uuid, i uuid, j uuid, k uuid, l uuid, '
-            'm uuid, n uuid, o uuid, p uuid) WITH gc_grace_seconds=0 '
-            'AND id={}'.format(non_cdc_table_id)
+            _get_create_table_statement(
+                ks_name, non_cdc_table_name,
+                column_spec=_16_uuid_column_spec,
+                options={'id': non_cdc_table_id}
+            )
         )
 
         non_cdc_prepared_insert = session.prepare(
@@ -453,19 +467,25 @@ class TestCDC(Tester):
         delete_1_start_time = time.time()
         session.execute('DROP TABLE ' + ks_name + '.' + cdc_table_name)
         session.execute(
-            'CREATE TABLE ' + ks_name + '.' + cdc_table_name + ' '
-            '(a uuid PRIMARY KEY, b uuid, c uuid, d uuid, e uuid, '
-            'f uuid, g uuid, h uuid, i uuid, j uuid, k uuid, l uuid, '
-            'm uuid, n uuid, o uuid, p uuid) WITH gc_grace_seconds=0 AND id={cdc_table_id}'.format(cdc_table_id=cdc_table_id)
+            _get_create_table_statement(
+                ks_name, cdc_table_name,
+                column_spec=_16_uuid_column_spec,
+                options={'gc_grace_seconds': 0,
+                         'id': cdc_table_id,
+                         'cdc': 'true'}
+            )
         )
+
         debug('delete 1 took {0:.1f}s'.format(time.time() - delete_1_start_time))
         delete_2_start_time = time.time()
         session.execute('DROP TABLE ' + ks_name + '.' + non_cdc_table_name)
         session.execute(
-            'CREATE TABLE ' + ks_name + '.' + non_cdc_table_name + ' '
-            '(a uuid PRIMARY KEY, b uuid, c uuid, d uuid, e uuid, '
-            'f uuid, g uuid, h uuid, i uuid, j uuid, k uuid, l uuid, '
-            'm uuid, n uuid, o uuid, p uuid) WITH gc_grace_seconds=0 AND id={non_cdc_table_id}'.format(non_cdc_table_id=non_cdc_table_id)
+            _get_create_table_statement(
+                ks_name, non_cdc_table_name,
+                column_spec=_16_uuid_column_spec,
+                options={'gc_grace_seconds': 0,
+                         'id': non_cdc_table_id}
+            )
         )
         debug('delete 2 took {0:.2f}s'.format(time.time() - delete_2_start_time))
         self.assertEqual(0, len(list(session.execute('SELECT * FROM ' + ks_name + '.' + non_cdc_table_name))))
