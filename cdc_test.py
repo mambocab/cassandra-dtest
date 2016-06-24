@@ -24,6 +24,15 @@ _16_uuid_column_spec = (
 )
 
 
+def _move_contents(source_dir, dest_dir, verbose=True):
+    for source_filename in os.listdir(source_dir):
+        source_path, dest_path = (os.path.join(source_dir, source_filename),
+                                  os.path.join(dest_dir, source_filename))
+        if verbose:
+            debug('moving {} to {}'.format(source_path, dest_path))
+        shutil.move(source_path, dest_path)
+
+
 def _get_16_uuid_insert_stmt(ks_name, table_name):
     return (
         'INSERT INTO {ks_name}.{table_name} '
@@ -455,16 +464,7 @@ class TestCDC(Tester):
         # Save cdc_raw files off to temporary directory
         node.flush()
         raw_dir = os.path.join(node.get_path(), 'cdc_raw')
-        cdc_raw_files = os.listdir(raw_dir)
-        debug('saving {n} file(s) from cdc_raw'.format(n=len(cdc_raw_files)))
-        copy_out_of_raw_start_time = time.time()
-        for original_cdc_raw_filename in cdc_raw_files:
-            # (it'd be nice to just ln this, but we do a copy for Windows compat)
-            shutil.copy2(
-                os.path.join(raw_dir, original_cdc_raw_filename),
-                os.path.join(saved_cdc_raw_contents_dir_name, original_cdc_raw_filename)
-            )
-        debug('first copy took {0:.2f}s'.format(time.time() - copy_out_of_raw_start_time))
+        _move_contents(raw_dir, saved_cdc_raw_contents_dir_name)
 
         # Start clean so we can "import" commitlog files
         delete_1_start_time = time.time()
@@ -483,13 +483,7 @@ class TestCDC(Tester):
         # moving the saved cdc_raw contents to commitlog directories,
         for commitlog_file in _get_commitlog_files(node.get_path()):
             os.remove(commitlog_file)
-        for cdc_raw_copy_filename in os.listdir(saved_cdc_raw_contents_dir_name):
-            debug('copying back ' + cdc_raw_copy_filename)
-            # (again, it'd be nice to just ln this, but we do this for Windows compat)
-            shutil.copy2(
-                os.path.join(saved_cdc_raw_contents_dir_name, cdc_raw_copy_filename),
-                os.path.join(node.get_path(), 'commitlogs')
-            )
+        _move_contents(saved_cdc_raw_contents_dir_name, os.path.join(node.get_path(), 'commitlogs'))
         # then starting the node again to trigger commitlog replay, which
         # should replay the cdc_raw files we moved to commitlogs into
         # memtables.
