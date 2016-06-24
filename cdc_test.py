@@ -323,7 +323,7 @@ class TestCDC(Tester):
 
         configuration_overrides = {
             # Make CDC space as small as possible so we can fill it quickly.
-            'cdc_total_space_in_mb': 16,
+            'cdc_total_space_in_mb': 4,
         }
         node, session = self.prepare(
             ks_name=ks_name,
