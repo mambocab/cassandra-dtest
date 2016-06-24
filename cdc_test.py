@@ -424,11 +424,8 @@ class TestCDC(Tester):
             # Make CDC space as small as possible so we can fill it quickly.
             'cdc_total_space_in_mb': 16,
         }
+        node, session = self.prepare(ks_name=ks_name, configuration_overrides=configuration_overrides)
 
-        node, session = self.prepare(
-            ks_name=ks_name,
-            configuration_overrides=configuration_overrides,
-        )
         cdc_table_info = TableInfo(
             ks_name=ks_name, table_name='cdc_tab',
             column_spec=_16_uuid_column_spec,
@@ -467,15 +464,12 @@ class TestCDC(Tester):
         _move_contents(raw_dir, saved_cdc_raw_contents_dir_name)
 
         # Start clean so we can "import" commitlog files
-        delete_1_start_time = time.time()
+        debug('dropping and recreating tables')
         session.execute('DROP TABLE ' + ks_name + '.' + cdc_table_info.table_name)
-        session.execute(cdc_table_info.create_stmt)
-        debug('delete 1 took {0:.1f}s'.format(time.time() - delete_1_start_time))
-
-        delete_2_start_time = time.time()
         session.execute('DROP TABLE ' + non_cdc_table_info.name)
+        session.execute(cdc_table_info.create_stmt)
         session.execute(non_cdc_table_info.create_stmt)
-        debug('delete 2 took {0:.2f}s'.format(time.time() - delete_2_start_time))
+        self.assertEqual(0, len(list(session.execute('SELECT * FROM ' + cdc_table_info.name))))
         self.assertEqual(0, len(list(session.execute('SELECT * FROM ' + non_cdc_table_info.name))))
 
         # "Import" commitlog files by stopping the node...
