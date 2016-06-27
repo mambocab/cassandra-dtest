@@ -94,8 +94,8 @@ def _write_to_cdc_WriteFailure(session, insert_stmt):
         # then, we make sure that the only failures are the expected
         # WriteFailures.
         assert_equal([],
-                         [result for (success, result) in batch_results
-                          if not success and not isinstance(result, WriteFailure)])
+                     [result for (success, result) in batch_results
+                      if not success and not isinstance(result, WriteFailure)])
         # Finally, if we find a WriteFailure, that means we've inserted all
         # the CDC data we can and so we flip error_found to exit the loop.
         if any(type(result) == WriteFailure for (_, result) in batch_results):
