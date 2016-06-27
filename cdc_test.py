@@ -12,6 +12,7 @@ from cassandra.concurrent import (execute_concurrent,
                                   execute_concurrent_with_args)
 from nose.tools import assert_equal, assert_less_equal
 
+from assertions import assert_none
 from dtest import Tester, debug
 from tools import rows_to_list, since
 from utils.fileutils import size_of_files_in_dir
@@ -476,8 +477,8 @@ class TestCDC(Tester):
         session.execute('DROP TABLE ' + non_cdc_table_info.name)
         session.execute(cdc_table_info.create_stmt)
         session.execute(non_cdc_table_info.create_stmt)
-        self.assertEqual(0, len(list(session.execute('SELECT * FROM ' + cdc_table_info.name))))
-        self.assertEqual(0, len(list(session.execute('SELECT * FROM ' + non_cdc_table_info.name))))
+        assert_none(session, 'SELECT * FROM ' + cdc_table_info.name)
+        assert_none(session, 'SELECT * FROM ' + non_cdc_table_info.name)
 
         # "Import" commitlog files by stopping the node...
         node.stop()
