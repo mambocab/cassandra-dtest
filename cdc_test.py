@@ -32,7 +32,7 @@ def _move_contents(source_dir, dest_dir, verbose=True):
                                   os.path.join(dest_dir, source_filename))
         if verbose:
             debug('moving {} to {}'.format(source_path, dest_path))
-        shutil.move(source_path, dest_path)
+        shutil.copy2(source_path, dest_path)
 
 
 def _get_16_uuid_insert_stmt(ks_name, table_name):
@@ -466,10 +466,9 @@ class TestCDC(Tester):
         saved_cdc_raw_contents_dir_name = os.path.join(os.getcwd(), '.saved_cdc_raw')
         self._create_temp_dir(saved_cdc_raw_contents_dir_name)
 
-        # Save cdc_raw files off to temporary directory
-        node.flush()
-        raw_dir = os.path.join(node.get_path(), 'cdc_raw')
-        _move_contents(raw_dir, saved_cdc_raw_contents_dir_name)
+        # Save commitlog files off to temporary directory
+        commitlog_dir = os.path.join(node.get_path(), 'commitlogs')
+        _move_contents(commitlog_dir, saved_cdc_raw_contents_dir_name)
 
         # Start clean so we can "import" commitlog files
         debug('dropping and recreating tables')
