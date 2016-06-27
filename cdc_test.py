@@ -447,7 +447,7 @@ class TestCDC(Tester):
             ks_name=ks_name, table_name='non_cdc_tab',
             column_spec=_16_uuid_column_spec,
             insert_stmt=_get_16_uuid_insert_stmt(ks_name, 'non_cdc_tab'),
-            options={'id': uuid.uuid4()}
+            options={'id': uuid.uuid4(), 'cdc': 'true'}
         )
         session.execute(non_cdc_table_info.create_stmt)
 
