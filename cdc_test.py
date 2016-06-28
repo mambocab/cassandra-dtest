@@ -480,7 +480,7 @@ class TestCDC(Tester):
             session.execute('DELETE FROM ' + cdc_table_info.name + ' WHERE a = {}'.format(key))
         for key in [row[0] for row in data_in_non_cdc_table_before_restart]:
             session.execute('DELETE FROM ' + non_cdc_table_info.name + ' WHERE a = {}'.format(key))
-        time.sleep(3)  # for gc_grace
+        node.flush()
         debug('compacting')
         non_cdc_compact = 'compact ' + non_cdc_table_info.ks_name + ' ' + non_cdc_table_info.table_name
         cdc_compact = 'compact ' + cdc_table_info.ks_name + ' ' + cdc_table_info.table_name
