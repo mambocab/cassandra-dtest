@@ -90,6 +90,9 @@ class BaseRepairTest(Tester):
         node1, node2, node3 = cluster.nodelist()
 
         session = self.patient_cql_connection(node1)
+        # bump up the session's timeout so we can avoid failures on GC while
+        # inserting at ALL
+        session.default_timeout = 180
         self.create_ks(session, 'ks', 3)
         self.create_cf(session, 'cf', read_repair=0.0, columns={'c1': 'text', 'c2': 'text'})
 
