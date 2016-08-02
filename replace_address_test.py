@@ -57,26 +57,26 @@ class BaseReplaceAddressTest(Tester):
 
         cluster.set_configuration_options(values={'hinted_handoff_enabled': False})
         cluster.populate(3).start()
-        node1, node2, node3 = cluster.nodelist()
+        stress_node, current_version_node, replaced_node = cluster.nodelist()
 
         if DISABLE_VNODES:
             num_tokens = 1
         else:
             # a little hacky but grep_log returns the whole line...
-            num_tokens = int(node3.get_conf_option('num_tokens'))
+            num_tokens = int(replaced_node.get_conf_option('num_tokens'))
 
         debug("testing with num_tokens: {}".format(num_tokens))
 
         # Change system_auth keyspace replication factor to 2, otherwise replace will fail
-        session = self.patient_cql_connection(node1)
+        session = self.patient_cql_connection(stress_node)
         update_auth_keyspace_replication(session)
 
         # insert initial data
-        node1.stress(['write', 'n=1000', "no-warmup", '-schema', 'replication(factor=3)'],
+        stress_node.stress(['write', 'n=1000', "no-warmup", '-schema', 'replication(factor=3)'],
                      whitelist=True)
 
         # query and save initial data
-        session = self.patient_exclusive_cql_connection(node1)
+        session = self.patient_exclusive_cql_connection(stress_node)
         session.default_timeout = 45
         stress_table = 'keyspace1.standard1'
         query = SimpleStatement('select * from %s' % stress_table, consistency_level=ConsistencyLevel.TWO)
@@ -84,42 +84,42 @@ class BaseReplaceAddressTest(Tester):
 
         # stop node
         debug("Stopping node 3.")
-        node3.stop(gently=False, wait_other_notice=True)
+        replaced_node.stop(gently=False, wait_other_notice=True)
         if same_address:
-            cluster.remove(node3)
+            cluster.remove(replaced_node)
 
-        # Upgrade only node2 to current version
+        # Upgrade only current_version_node to current version
         if mixed_versions:
-            debug("Upgrading node2 to current version")
-            node2.stop(gently=True, wait_other_notice=True)
-            node2.set_install_dir(install_dir=default_install_dir)
-            node2.start(wait_other_notice=True, wait_for_binary_proto=True)
+            debug("Upgrading current_version_node to current version")
+            current_version_node.stop(gently=True, wait_other_notice=True)
+            current_version_node.set_install_dir(install_dir=default_install_dir)
+            current_version_node.start(wait_other_notice=True, wait_for_binary_proto=True)
             # Also change cluster dir so new node is started in new version
             cluster.set_install_dir(install_dir=default_install_dir)
 
-        # start node4 on write survey mode so it does not finish joining ring
-        node4_address = '127.0.0.3' if same_address else '127.0.0.4'
-        debug("Starting node 4 to replace node 3 with address {}".format(node4_address))
-        node4 = Node('node4', cluster, True, (node4_address, 9160), (node4_address, 7000),
-                     '7400', '0', None, binary_interface=(node4_address, 9042))
-        cluster.add(node4, False)
-        node4.start(jvm_args=["-Dcassandra.replace_address_first_boot=127.0.0.3",
+        # start replacement_node on write survey mode so it does not finish joining ring
+        replacement_node_address = '127.0.0.3' if same_address else '127.0.0.4'
+        debug("Starting node 4 to replace node 3 with address {}".format(replacement_node_address))
+        replacement_node = Node('replacement_node', cluster, True, (replacement_node_address, 9160), (replacement_node_address, 7000),
+                     '7400', '0', None, binary_interface=(replacement_node_address, 9042))
+        cluster.add(replacement_node, False)
+        replacement_node.start(jvm_args=["-Dcassandra.replace_address_first_boot=127.0.0.3",
                               "-Dcassandra.write_survey=true"], wait_for_binary_proto=True,
                     wait_other_notice=False)
 
         if same_address:
-            node4.watch_log_for("Writes will not be forwarded to this node during replacement",
+            replacement_node.watch_log_for("Writes will not be forwarded to this node during replacement",
                                 timeout=60)
 
-        nodes_in_current_version = [node2, node4] if mixed_versions else [node1, node2, node4]
+        nodes_in_current_version = [current_version_node, replacement_node] if mixed_versions else [stress_node, current_version_node, replacement_node]
         if not same_address:
             for node in nodes_in_current_version:
                 node.watch_log_for("Node /127.0.0.4 is replacing /127.0.0.3", timeout=60, filename='debug.log')
 
         # write additional data during replacement - if the new replace is used, extra writes should be
         # forwarded to the replacement node
-        debug("Writing data to node1 - should replicate to replacement node")
-        node1.stress(['write', 'n=2k', "no-warmup", '-schema', 'replication(factor=3)'],
+        debug("Writing data to stress_node - should replicate to replacement node")
+        stress_node.stress(['write', 'n=2k', "no-warmup", '-schema', 'replication(factor=3)'],
                      whitelist=True)
 
         # update expected_data if writes should be redirected to replacement node
@@ -128,20 +128,20 @@ class BaseReplaceAddressTest(Tester):
             expected_data = rows_to_list(session.execute(query))
 
         debug("Joining replaced node")
-        node4.nodetool("join")
+        replacement_node.nodetool("join")
 
         if not same_address:
             for node in nodes_in_current_version:
                 node.watch_log_for("Node /127.0.0.4 will complete replacement of /127.0.0.3 for tokens", timeout=10)
                 node.watch_log_for("removing endpoint /127.0.0.3", timeout=60, filename='debug.log')
 
-        debug("Stopping node1 and 2 to query only replaced node")
-        node1.stop(wait_other_notice=True)
-        node2.stop(wait_other_notice=True)
+        debug("Stopping stress_node and 2 to query only replaced node")
+        stress_node.stop(wait_other_notice=True)
+        current_version_node.stop(wait_other_notice=True)
 
         # query should work again
         debug("Verifying data is present on replaced node")
-        session = self.patient_cql_connection(node4)
+        session = self.patient_cql_connection(replacement_node)
         query = SimpleStatement('select * from %s' % stress_table, consistency_level=ConsistencyLevel.ONE)
         final_data = rows_to_list(session.execute(query))
         debug("{} entries found (before was {})".format(len(final_data), len(expected_data)))
@@ -829,7 +829,6 @@ class TestReplaceAddress(BaseReplaceAddressTest):
         assert_all(session, 'SELECT * from {} LIMIT 1'.format(stress_table),
                    expected=initial_data,
                    cl=ConsistencyLevel.ONE)
-
 
     def _cleanup(self, node):
         commitlog_dir = os.path.join(node.get_path(), 'commitlogs')
