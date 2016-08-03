@@ -174,11 +174,7 @@ class TestTopology(Tester):
         - asserting that the node is not running.
         '''
         rejoin_err = 'This node was decommissioned and will not rejoin the ring'
-        try:
-            self.ignore_log_patterns = list(self.ignore_log_patterns)
-        except AttributeError:
-            self.ignore_log_patterns = []
-        self.ignore_log_patterns.append(rejoin_err)
+        self.ignore_log_patterns = list(self.ignore_log_patterns) + [rejoin_err]
 
         self.cluster.populate(3).start(wait_for_binary_proto=True)
         node1, node2, node3 = self.cluster.nodelist()

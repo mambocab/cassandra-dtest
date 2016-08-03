@@ -285,7 +285,27 @@ class Runner(threading.Thread):
             raise self.__error
 
 
+class TupleAssignmentDescriptor(object):
+    def __init__(self, name, value=()):
+        self.name, self.value = name, value
+
+    def __set__(self, obj, value):
+        new_value_as_tuple = tuple(value)
+        debug('changing {name} on {obj} from {old} to {new}'.format(
+            name=self.name,
+            obj=obj,
+            old=self.value,
+            new=new_value_as_tuple
+        ))
+        self.value = new_value_as_tuple
+
+    def __get__(self, obj, objtype):
+        return self.value
+
+
 class Tester(TestCase):
+
+    ignore_log_patterns = TupleAssignmentDescriptor(name='ignore_log_patterns')
 
     maxDiff = None
 

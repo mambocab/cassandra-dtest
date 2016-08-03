@@ -595,7 +595,7 @@ class TestBootstrap(Tester):
         bootstrap_error = ("Other bootstrapping/leaving/moving nodes detected,"
                            " cannot bootstrap while cassandra.consistent.rangemovement is true")
 
-        self.ignore_log_patterns.append(bootstrap_error)
+        self.ignore_log_patterns = list(self.ignore_log_patterns) + [bootstrap_error]
 
         cluster = self.cluster
         cluster.populate(1)

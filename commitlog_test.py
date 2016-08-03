@@ -463,11 +463,8 @@ class TestCommitLog(Tester):
         and the commit_failure_policy is stop, C* shouldn't startup
         @jira_ticket CASSANDRA-9749
         """
-        if not hasattr(self, 'ignore_log_patterns'):
-            self.ignore_log_patterns = []
-
         expected_error = "Exiting due to error while processing commit log during initialization."
-        self.ignore_log_patterns.append(expected_error)
+        self.ignore_log_patterns = list(self.ignore_log_patterns) + [expected_error]
         node = self.node1
         self.assertIsInstance(node, Node)
         node.set_configuration_options({'commit_failure_policy': 'stop', 'commitlog_sync_period_in_ms': 1000})
@@ -541,11 +538,8 @@ class TestCommitLog(Tester):
         if the commit log header refers to an unknown compression class, and
         the commit_failure_policy is stop, C* shouldn't start up
         """
-        if not hasattr(self, 'ignore_log_patterns'):
-            self.ignore_log_patterns = []
-
         expected_error = 'Could not create Compression for type org.apache.cassandra.io.compress.LZ5Compressor'
-        self.ignore_log_patterns.append(expected_error)
+        self.ignore_log_patterns = list(self.ignore_log_patterns) + [expected_error]
         node = self.node1
         self.assertIsInstance(node, Node)
         node.set_configuration_options({'commit_failure_policy': 'stop',
