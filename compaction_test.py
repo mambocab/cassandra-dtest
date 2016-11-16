@@ -569,4 +569,4 @@ def stress_write(node, keycount=100000):
 strategies = ['LeveledCompactionStrategy', 'SizeTieredCompactionStrategy', 'DateTieredCompactionStrategy']
 for strategy in strategies:
     cls_name = ('TestCompaction_with_' + strategy)
-    vars()[cls_name] = type(cls_name, (TestCompaction,), {'strategy': strategy, '__test__': True})
+    vars()[cls_name] = type(cls_name, (TestCompaction,), {'strategy': strategy})
